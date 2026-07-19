@@ -12,6 +12,12 @@ services:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+  redis:
+    image: redis:7-alpine
+    container_name: social_redis
+    ports:
+      - "6379:6379"
+    # 刻意不掛 volume:session / state / pending 都是可拋棄狀態(見第 1.2 節)
 
 volumes:
   db_data:

@@ -7,13 +7,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/api"
+	"github.com/whyAmICodingx0/Social-Content-Platform/internal/cookies"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/repository"
 )
 
-// SessionStore:session 儲存的抽象(interface)。
-// 任務 E 用 NoopSessionStore 佔位;Redis 基建會提供真正的實作,
-// 到時 middleware 一行都不用改,只在 main.go 換掉塞進來的東西。
-//
 // 兩個 sentinel error 對應 spec 4.8 / 4.12 的兩種失敗:
 //
 //	ErrSessionNotFound  → 憑證無效(required 回 401;optional 視同匿名)
@@ -25,13 +22,6 @@ var (
 
 type SessionStore interface {
 	GetUserID(ctx context.Context, sessionID string) (string, error)
-}
-
-// NoopSessionStore:永遠查無 session 的佔位實作。
-type NoopSessionStore struct{}
-
-func (NoopSessionStore) GetUserID(ctx context.Context, sessionID string) (string, error) {
-	return "", ErrSessionNotFound
 }
 
 const ctxUserKey = "auth.user"
@@ -76,7 +66,7 @@ func (a *Auth) Optional() gin.HandlerFunc {
 }
 
 func (a *Auth) resolve(c *gin.Context) (*repository.User, error) {
-	sid, err := c.Cookie("sid")
+	sid, err := c.Cookie(cookies.NameSID)
 	if err != nil || sid == "" {
 		return nil, errNoCookie
 	}

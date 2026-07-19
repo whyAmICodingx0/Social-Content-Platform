@@ -6,12 +6,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/api"
+	"github.com/whyAmICodingx0/Social-Content-Platform/internal/cookies"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/middleware"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/repository"
+	"github.com/whyAmICodingx0/Social-Content-Platform/internal/store"
 )
 
 type DevHandler struct {
-	Users *repository.UserRepository
+	Users    *repository.UserRepository
+	Sessions *store.SessionStore
+	States   *store.OAuthStateStore
+	Cookies  *cookies.Manager
 }
 
 type echoRequest struct {
@@ -26,6 +31,62 @@ func (h *DevHandler) Echo(c *gin.Context) {
 		return
 	}
 	api.OK(c, req)
+}
+
+type devLoginRequest struct {
+	UserID string `json:"user_id"`
+}
+
+// Login:模擬「登入成功後建 session + 設 cookie」——
+// 這正是任務 F 的 callback / signup 最後兩步會做的事。
+// 任務 F 完成後刪除。
+func (h *DevHandler) Login(c *gin.Context) {
+	var req devLoginRequest
+	if !api.BindStrict(c, &req) {
+		return
+	}
+	u, err := h.Users.GetByID(c.Request.Context(), req.UserID)
+	if errors.Is(err, repository.ErrNotFound) {
+		api.Fail(c, http.StatusNotFound, api.CodeNotFound, "user not found")
+		return
+	}
+	if err != nil {
+		api.Fail(c, http.StatusInternalServerError, api.CodeInternalError, "unexpected error")
+		return
+	}
+	sid, err := h.Sessions.Create(c.Request.Context(), u.ID)
+	if err != nil {
+		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
+			"Service temporarily unavailable")
+		return
+	}
+	h.Cookies.SetSession(c, sid)
+	api.OK(c, gin.H{"session_created_for": u.Username})
+}
+
+// StateDemo:演示 OAuth state 的一次性消費。
+// 同一個 state 消費兩次:第一次 true、第二次必須 false。
+func (h *DevHandler) StateDemo(c *gin.Context) {
+	ctx := c.Request.Context()
+	state, err := h.States.Create(ctx)
+	if err != nil {
+		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
+			"Service temporarily unavailable")
+		return
+	}
+	first, err := h.States.Consume(ctx, state)
+	if err != nil {
+		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
+			"Service temporarily unavailable")
+		return
+	}
+	second, err := h.States.Consume(ctx, state)
+	if err != nil {
+		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
+			"Service temporarily unavailable")
+		return
+	}
+	api.OK(c, gin.H{"first_consume": first, "second_consume": second})
 }
 
 // GetUser:驗證 repository 的 deleted_at 封裝。
