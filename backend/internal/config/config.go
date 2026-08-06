@@ -22,6 +22,9 @@ type Config struct {
 	GoogleClientID     string   // 任務 F 才會填
 	GoogleClientSecret string
 	GoogleRedirectURL  string
+	PostLoginURL       string // callback 成功（老用戶）導向
+	OnboardingURL      string // callback 新用戶導向
+	AuthErrorURL       string // OAuth 失敗導向（會附上 ?error=xxx）
 }
 
 func Load() (*Config, error) {
@@ -37,11 +40,17 @@ func Load() (*Config, error) {
 		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
 		GoogleRedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
+		PostLoginURL:       getEnv("POST_LOGIN_URL", "http://localhost:8080/api/v1/dev/whoami"),
+		OnboardingURL:      getEnv("ONBOARDING_URL", "http://localhost:8080/api/v1/dev/onboarding"),
+		AuthErrorURL:       getEnv("AUTH_ERROR_URL", "http://localhost:8080/api/v1/dev/whoami"),
 	}
 
 	// spec 4.6 的護欄:正式環境不允許不安全的 cookie 設定
 	if cfg.AppEnv == "prod" && !cfg.CookieSecure {
 		return nil, fmt.Errorf("COOKIE_SECURE must be true when APP_ENV=prod")
+	}
+	if cfg.GoogleClientID == "" || cfg.GoogleClientSecret == "" || cfg.GoogleRedirectURL == "" {
+		return nil, fmt.Errorf("GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URL are required（見任務 F-1）")
 	}
 	return cfg, nil
 }

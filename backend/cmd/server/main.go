@@ -9,20 +9,20 @@ import (
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/api"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/config"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/cookies"
+	"github.com/whyAmICodingx0/Social-Content-Platform/internal/googleoauth"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/handler"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/middleware"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/repository"
+	"github.com/whyAmICodingx0/Social-Content-Platform/internal/service"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/store"
 )
 
 func main() {
-	// 1. 設定
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
 
-	// 2. 基礎設施:PostgreSQL + Redis(皆惰性連線)
 	pool, err := repository.NewPool(context.Background(), cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("db: %v", err)
@@ -32,22 +32,29 @@ func main() {
 	rdb := store.NewRedisClient(cfg.RedisAddr)
 	defer rdb.Close()
 
-	// 3. 組裝(wiring)
+	// wiring:repository → service → handler
 	userRepo := repository.NewUserRepository(pool)
+	authRepo := repository.NewAuthRepository(pool)
+
 	sessions := store.NewSessionStore(rdb)
 	states := store.NewOAuthStateStore(rdb)
-	pendings := store.NewPendingSignupStore(rdb) // 任務 F 使用;先建好
-	_ = pendings                                 // 暫時避開 unused 編譯錯誤,任務 F 移除這行
+	pendings := store.NewPendingSignupStore(rdb)
 
 	cookieMgr := &cookies.Manager{Secure: cfg.CookieSecure}
-
-	// ★ interface 替換時刻:NoopSessionStore → 真正的 Redis SessionStore。
-	//   middleware 的程式碼零修改。
 	auth := &middleware.Auth{Store: sessions, Users: userRepo}
 
+	authSvc := &service.AuthService{Auth: authRepo, Users: userRepo}
+	authHandler := &handler.AuthHandler{
+		Google:   googleoauth.New(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURL),
+		Svc:      authSvc,
+		Sessions: sessions,
+		States:   states,
+		Pendings: pendings,
+		Cookies:  cookieMgr,
+		Cfg:      cfg,
+	}
 	healthHandler := handler.NewHealthHandler(pool, rdb)
 
-	// 4. Gin 引擎
 	if !cfg.IsDev() {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -57,30 +64,26 @@ func main() {
 			"Internal server error")
 	}))
 
-	// 5. 路由
 	r.GET("/healthz", healthHandler.Healthz)
 
 	v1 := r.Group("/api/v1")
 	v1.Use(middleware.CSRF(cfg.FrontendOrigins))
 
-	// 任務 F 會換成真正的 /me handler
-	v1.GET("/me", auth.Required(), func(c *gin.Context) {})
+	// Auth(spec 端點 1-5)
+	v1.GET("/auth/google/login", authHandler.GoogleLogin)
+	v1.GET("/auth/google/callback", authHandler.GoogleCallback)
+	v1.POST("/auth/signup", authHandler.Signup)
+	v1.POST("/auth/logout", authHandler.Logout)
+	v1.GET("/me", auth.Required(), authHandler.Me)
 
 	if cfg.IsDev() {
-		dev := handler.DevHandler{
-			Users:    userRepo,
-			Sessions: sessions,
-			States:   states,
-			Cookies:  cookieMgr,
-		}
+		dev := handler.DevHandler{Users: userRepo}
+		v1.GET("/dev/onboarding", dev.OnboardingPage)
+		v1.GET("/dev/whoami", auth.Optional(), dev.WhoAmI)
 		v1.POST("/dev/echo", dev.Echo)
 		v1.GET("/dev/users/:id", dev.GetUser)
-		v1.GET("/dev/whoami", auth.Optional(), dev.WhoAmI)
-		v1.POST("/dev/login", dev.Login)          // 本步驟驗收用,任務 F 後刪
-		v1.POST("/dev/state-demo", dev.StateDemo) // 本步驟驗收用,任務 F 後刪
 	}
 
-	// 6. 啟動
 	log.Printf("listening on :%s (env=%s)", cfg.Port, cfg.AppEnv)
 	if err := r.Run(":" + cfg.Port); err != nil {
 		log.Fatal(err)
