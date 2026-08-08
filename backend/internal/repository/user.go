@@ -61,3 +61,58 @@ func (r *UserRepository) GetByID(ctx context.Context, id string) (*User, error) 
 	}
 	return &u, nil
 }
+
+// UpdateProfileParams：nil 代表「這個欄位不更新」（PATCH 語意）。
+type UpdateProfileParams struct {
+	DisplayName *string
+	Bio         *string
+	AvatarURL   *string
+}
+
+// UpdateProfile 部分更新個人檔案（spec 6.1）。
+func (r *UserRepository) UpdateProfile(ctx context.Context, id string, p UpdateProfileParams) (*User, error) {
+	const q = `
+		UPDATE users SET
+			display_name = COALESCE(NULLIF($2, ''), display_name),
+			bio          = NULLIF(COALESCE($3, bio, ''), ''),
+			avatar_url   = NULLIF(COALESCE($4, avatar_url, ''), ''),
+			updated_at   = now()
+		WHERE id = $1 AND deleted_at IS NULL
+		RETURNING id, username, email, display_name, avatar_url, bio,
+		          created_at, updated_at`
+
+	var u User
+	err := r.pool.QueryRow(ctx, q, id, p.DisplayName, p.Bio, p.AvatarURL).Scan(
+		&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Bio,
+		&u.CreatedAt, &u.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound // 使用者不存在或已軟刪
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+// GetByUsername 依 username 查未刪除的使用者（spec 6.2）。
+func (r *UserRepository) GetByUsername(ctx context.Context, username string) (*User, error) {
+	const q = `
+		SELECT id, username, email, display_name, avatar_url, bio,
+		       created_at, updated_at
+		FROM users
+		WHERE lower(username) = lower($1) AND deleted_at IS NULL`
+
+	var u User
+	err := r.pool.QueryRow(ctx, q, username).Scan(
+		&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.AvatarURL, &u.Bio,
+		&u.CreatedAt, &u.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}

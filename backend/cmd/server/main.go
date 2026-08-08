@@ -43,6 +43,9 @@ func main() {
 	cookieMgr := &cookies.Manager{Secure: cfg.CookieSecure}
 	auth := &middleware.Auth{Store: sessions, Users: userRepo}
 
+	userSvc := &service.UserService{Users: userRepo}
+	userHandler := &handler.UserHandler{Svc: userSvc}
+
 	authSvc := &service.AuthService{Auth: authRepo, Users: userRepo}
 	authHandler := &handler.AuthHandler{
 		Google:   googleoauth.New(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURL),
@@ -75,13 +78,14 @@ func main() {
 	v1.POST("/auth/signup", authHandler.Signup)
 	v1.POST("/auth/logout", authHandler.Logout)
 	v1.GET("/me", auth.Required(), authHandler.Me)
+	v1.PATCH("/me", auth.Required(), userHandler.PatchMe)    // 新增
+	v1.GET("/users/:username", userHandler.GetPublicProfile) // 新增（純公開）
 
 	if cfg.IsDev() {
 		dev := handler.DevHandler{Users: userRepo}
 		v1.GET("/dev/onboarding", dev.OnboardingPage)
 		v1.GET("/dev/whoami", auth.Optional(), dev.WhoAmI)
 		v1.POST("/dev/echo", dev.Echo)
-		v1.GET("/dev/users/:id", dev.GetUser)
 	}
 
 	log.Printf("listening on :%s (env=%s)", cfg.Port, cfg.AppEnv)
