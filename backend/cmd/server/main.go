@@ -46,6 +46,10 @@ func main() {
 	userSvc := &service.UserService{Users: userRepo}
 	userHandler := &handler.UserHandler{Svc: userSvc}
 
+	postRepo := repository.NewPostRepository(pool)
+	postSvc := &service.PostService{Posts: postRepo}
+	postHandler := &handler.PostHandler{Svc: postSvc}
+
 	authSvc := &service.AuthService{Auth: authRepo, Users: userRepo}
 	authHandler := &handler.AuthHandler{
 		Google:   googleoauth.New(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURL),
@@ -80,6 +84,10 @@ func main() {
 	v1.GET("/me", auth.Required(), authHandler.Me)
 	v1.PATCH("/me", auth.Required(), userHandler.PatchMe)    // 新增
 	v1.GET("/users/:username", userHandler.GetPublicProfile) // 新增（純公開）
+	v1.POST("/posts", auth.Required(), postHandler.Create)
+	v1.PATCH("/posts/:id", auth.Required(), postHandler.Update)
+	v1.DELETE("/posts/:id", auth.Required(), postHandler.Delete)
+	v1.GET("/users/:username/posts/:slug", auth.Optional(), postHandler.GetBySlug)
 
 	if cfg.IsDev() {
 		dev := handler.DevHandler{Users: userRepo}
