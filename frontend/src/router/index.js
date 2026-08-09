@@ -23,6 +23,25 @@ const routes = [
     name: 'post',
     component: () => import('../views/PostView.vue'),
   },
+  {
+    path: '/new',
+    name: 'post-new',
+    component: () => import('../views/EditorView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    // 比 /@:username/:slug 多一段固定的 edit，vue-router 會正確區分
+    path: '/@:username/:slug/edit',
+    name: 'post-edit',
+    component: () => import('../views/EditorView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/me/posts',
+    name: 'my-posts',
+    component: () => import('../views/MyPostsView.vue'),
+    meta: { requiresAuth: true },
+  },
   // 之後會加入：/new、/edit/:id（V-5）、/@:username（V-6）、/@:username/:slug（V-4）
   {
     path: '/:pathMatch(.*)*',

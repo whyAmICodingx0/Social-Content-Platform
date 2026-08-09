@@ -26,6 +26,8 @@ async function handleLogout() {
         <!-- ready 之前不顯示，避免閃過錯誤狀態 -->
         <template v-if="auth.ready">
           <template v-if="auth.isAuthenticated">
+            <RouterLink to="/new" class="header__link">寫文章</RouterLink>
+            <RouterLink to="/me/posts" class="header__link">我的文章</RouterLink>
             <span class="header__user">{{ auth.user.display_name || auth.user.username }}</span>
             <button class="btn btn--ghost" @click="handleLogout">登出</button>
           </template>
@@ -65,5 +67,20 @@ async function handleLogout() {
 .header__user {
   font-size: var(--text-sm);
   color: var(--color-text-muted);
+}
+
+.header__link {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.header__link:hover {
+  color: var(--color-accent);
+}
+
+/* vue-router 會自動為當前頁面的連結加上這個 class */
+.header__link.router-link-active {
+  color: var(--color-text);
+  font-weight: 600;
 }
 </style>

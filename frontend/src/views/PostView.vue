@@ -1,6 +1,8 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 import { postsApi } from '../api'
 import { ApiError } from '../api/client'
 import { renderMarkdown } from '../utils/markdown'
@@ -27,6 +29,35 @@ const displayDate = computed(
 const contentHtml = computed(() =>
   post.value ? renderMarkdown(post.value.content) : ''
 )
+
+const router = useRouter()
+const auth = useAuthStore()
+
+const deleting = ref(false)
+
+// Post Detail 的 author 只有 username，用它比對即可
+const isAuthor = computed(
+  () => auth.isAuthenticated && post.value && auth.user.username === post.value.author.username
+)
+
+const editUrl = computed(
+  () => `/@${post.value.author.username}/${post.value.slug}/edit`
+)
+
+async function handleDelete() {
+  // MVP 用瀏覽器內建 confirm；之後想做自訂 Modal 再換
+  if (!window.confirm(`確定要刪除「${post.value.title}」嗎？此操作無法復原。`)) return
+
+  deleting.value = true
+  try {
+    await postsApi.remove(post.value.id)
+    router.replace('/me/posts')
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    deleting.value = false
+  }
+}
 
 async function load() {
   loading.value = true
@@ -83,6 +114,13 @@ watch(() => [route.params.username, route.params.slug], load, { immediate: true 
             </RouterLink>
           </li>
         </ul>
+
+        <div v-if="isAuthor" class="post__actions">
+          <RouterLink :to="editUrl" class="btn btn--ghost">編輯</RouterLink>
+          <button class="btn btn--ghost post__delete" :disabled="deleting" @click="handleDelete">
+            {{ deleting ? '刪除中…' : '刪除' }}
+          </button>
+        </div>
       </header>
 
       <!--
@@ -275,4 +313,15 @@ watch(() => [route.params.username, route.params.slug], load, { immediate: true 
 
 .prose :deep(strong) { font-weight: 700; }
 .prose :deep(em) { font-style: italic; }
+
+.post__actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.post__delete:hover {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
 </style>

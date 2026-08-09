@@ -1,0 +1,116 @@
+/* ============================================
+   文章內文排版（全域）
+   這份樣式同時給文章頁與編輯器預覽使用。
+   放在全域檔案而非 scoped：
+     1. 兩個元件共用，不該複製兩份
+     2. 全域樣式對 v-html 插入的節點直接生效，不必寫 :deep()
+   ============================================ */
+.prose {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  line-height: var(--leading-relaxed);
+}
+
+.prose p {
+  margin-bottom: var(--space-6);
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+  font-family: var(--font-ui);
+  margin-top: var(--space-12);
+  margin-bottom: var(--space-4);
+  line-height: var(--leading-tight);
+}
+
+.prose h1 { font-size: var(--text-2xl); }
+.prose h2 { font-size: var(--text-xl); }
+.prose h3 { font-size: var(--text-lg); }
+.prose h4 { font-size: var(--text-base); }
+
+.prose a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.prose ul,
+.prose ol {
+  margin-bottom: var(--space-6);
+  padding-left: var(--space-6);
+}
+
+.prose ul { list-style: disc; }
+.prose ol { list-style: decimal; }
+
+.prose li {
+  margin-bottom: var(--space-2);
+}
+
+.prose blockquote {
+  margin: var(--space-6) 0;
+  padding-left: var(--space-4);
+  border-left: 3px solid var(--color-accent);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.prose code {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.875em;
+  padding: 0.15em 0.4em;
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+.prose pre {
+  margin: var(--space-6) 0;
+  padding: var(--space-4);
+  background: #2b2926;
+  border-radius: var(--radius);
+  overflow-x: auto;
+}
+
+.prose pre code {
+  padding: 0;
+  background: none;
+  color: #f0ece6;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.prose img {
+  margin: var(--space-6) 0;
+  border-radius: var(--radius);
+}
+
+.prose hr {
+  margin: var(--space-12) 0;
+  border: none;
+  border-top: 1px solid var(--color-border);
+}
+
+.prose table {
+  width: 100%;
+  margin: var(--space-6) 0;
+  border-collapse: collapse;
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}
+
+.prose th,
+.prose td {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  text-align: left;
+}
+
+.prose th {
+  background: var(--color-border);
+  font-weight: 600;
+}
+
+.prose strong { font-weight: 700; }
+.prose em { font-style: italic; }
