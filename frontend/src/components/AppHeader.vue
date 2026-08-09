@@ -1,12 +1,19 @@
 <script setup>
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { authApi } from '../api'
 
 const auth = useAuthStore()
+const router = useRouter()
 
 function login() {
-  // OAuth 是整頁導向，不是 fetch
   window.location.href = authApi.loginUrl
+}
+
+async function handleLogout() {
+  await auth.logout()
+  // 若當前在需要登入的頁面，留在原地會看到錯誤畫面
+  router.push('/')
 }
 </script>
 
@@ -20,7 +27,7 @@ function login() {
         <template v-if="auth.ready">
           <template v-if="auth.isAuthenticated">
             <span class="header__user">{{ auth.user.display_name || auth.user.username }}</span>
-            <button class="btn btn--ghost" @click="auth.logout()">登出</button>
+            <button class="btn btn--ghost" @click="handleLogout">登出</button>
           </template>
           <button v-else class="btn btn--primary" @click="login">使用 Google 登入</button>
         </template>
