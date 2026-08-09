@@ -56,7 +56,7 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 	cState, cerr := c.Cookie(cookies.NameOAuthState)
 	h.Cookies.ClearOAuthState(c) // 不論成敗都清(一次性)
 	if qState == "" || cerr != nil || cState == "" || qState != cState {
-		api.Fail(c, http.StatusBadRequest, api.CodeValidationError, "invalid oauth state")
+		h.redirectError(c, "invalid_state")
 		return
 	}
 	ok, err := h.States.Consume(ctx, qState)
@@ -66,13 +66,13 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 		return
 	}
 	if !ok {
-		api.Fail(c, http.StatusBadRequest, api.CodeValidationError, "invalid oauth state")
+		h.redirectError(c, "invalid_state")
 		return
 	}
 
 	code := c.Query("code")
 	if code == "" {
-		api.Fail(c, http.StatusBadRequest, api.CodeValidationError, "missing code")
+		h.redirectError(c, "invalid_state")
 		return
 	}
 

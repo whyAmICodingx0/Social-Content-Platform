@@ -1,73 +1,92 @@
 <script setup>
-import { ref, onMounted } from 'vue'
-import { tagsApi } from '../api'
+import { ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { postsApi } from '../api'
+import PostCard from '../components/PostCard.vue'
+import TagFilter from '../components/TagFilter.vue'
+import PaginationNav from '../components/PaginationNav.vue'
 
-const tags = ref([])
+const route = useRoute()
+const router = useRouter()
+
+const posts = ref([])
+const pagination = ref(null)
 const loading = ref(true)
 const error = ref(null)
 
-onMounted(async () => {
+// 篩選狀態一律讀自網址（見 V-3-0）
+const currentTag = computed(() => route.query.tag || '')
+const currentPage = computed(() => Number(route.query.page) || 1)
+
+async function load() {
+  loading.value = true
+  error.value = null
   try {
-    const res = await tagsApi.list()
-    tags.value = res.data
+    const res = await postsApi.list({
+      tag: currentTag.value,
+      page: currentPage.value,
+    })
+    posts.value = res.data
+    pagination.value = res.pagination
   } catch (err) {
     error.value = err.message
+    posts.value = []
+    pagination.value = null
   } finally {
     loading.value = false
   }
-})
+}
+
+// 監聽網址上的篩選參數；immediate 讓它在初次載入時也跑一次。
+// 注意監聽的是「陣列裡的兩個值」而非整個 query 物件——
+// 物件每次都是新的參考，會造成不必要的重複請求。
+watch(() => [route.query.tag, route.query.page], load, { immediate: true })
+
+function goToPage(page) {
+  router.push({ path: '/', query: { ...route.query, page } })
+}
 </script>
 
 <template>
-  <div class="container">
-    <h1 class="page-title">連線測試</h1>
-    <p class="page-desc">以下標籤由後端 API 提供，能看到內容代表前後端串接成功。</p>
+  <div class="container container--narrow">
+    <TagFilter :active="currentTag" />
 
     <p v-if="loading" class="state">載入中…</p>
-    <p v-else-if="error" class="state state--error">{{ error }}</p>
-    <p v-else-if="tags.length === 0" class="state">
-      目前沒有任何標籤（發一篇帶標籤的文章就會出現）。
+
+    <p v-else-if="error" class="state state--error">
+      {{ error }}
     </p>
-    <ul v-else class="tag-list">
-      <li v-for="tag in tags" :key="tag.id" class="tag">
-        {{ tag.slug }}
-        <span class="tag__count">{{ tag.post_count }}</span>
-      </li>
-    </ul>
+
+    <div v-else-if="posts.length === 0" class="state">
+      <template v-if="currentTag">
+        「{{ currentTag }}」這個標籤底下還沒有文章。
+      </template>
+      <template v-else>
+        還沒有任何文章。成為第一個發文的人吧！
+      </template>
+    </div>
+
+    <template v-else>
+      <div class="post-list">
+        <PostCard v-for="post in posts" :key="post.id" :post="post" />
+      </div>
+      <PaginationNav
+        v-if="pagination"
+        :pagination="pagination"
+        @change="goToPage"
+      />
+    </template>
   </div>
 </template>
 
 <style scoped>
-.page-title {
-  font-family: var(--font-serif);
-  font-size: var(--text-3xl);
-  margin-bottom: var(--space-2);
-}
-
-.page-desc {
-  color: var(--color-text-muted);
-  margin-bottom: var(--space-8);
-}
-
-.tag-list {
+.post-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
+  flex-direction: column;
 }
 
-.tag {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-surface);
-  font-size: var(--text-sm);
-}
-
-.tag__count {
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
+/* 第一張卡片不需要上方留白 */
+.post-list :deep(.card:first-child) {
+  padding-top: var(--space-8);
 }
 </style>
