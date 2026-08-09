@@ -12,6 +12,8 @@ const errorMessages = {
   email_not_verified: '這個 Google 帳號的 email 尚未通過驗證，無法用於註冊。',
   account_unavailable: '此帳號目前無法使用，請聯繫管理者。',
   invalid_state: '登入請求已逾時或無效，請重新登入。',
+  missing_code: 'Google 沒有回傳授權碼，請重新登入一次。',
+  service_unavailable: '服務暫時無法使用，請稍後再試。',
 }
 
 const errorMessage = computed(() => {

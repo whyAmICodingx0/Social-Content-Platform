@@ -93,6 +93,7 @@ const displayDate = computed(
   /* 最多顯示兩行，超過以 … 收尾 */
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }

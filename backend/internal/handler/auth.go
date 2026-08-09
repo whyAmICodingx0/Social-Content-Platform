@@ -32,8 +32,7 @@ type AuthHandler struct {
 func (h *AuthHandler) GoogleLogin(c *gin.Context) {
 	state, err := h.States.Create(c.Request.Context())
 	if err != nil {
-		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
-			"Service temporarily unavailable")
+		h.redirectError(c, "service_unavailable")
 		return
 	}
 	h.Cookies.SetOAuthState(c, state) // 把 state 綁到這個瀏覽器(決策 #14)
@@ -61,8 +60,7 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 	}
 	ok, err := h.States.Consume(ctx, qState)
 	if err != nil {
-		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
-			"Service temporarily unavailable")
+		h.redirectError(c, "service_unavailable")
 		return
 	}
 	if !ok {
@@ -72,7 +70,7 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 
 	code := c.Query("code")
 	if code == "" {
-		h.redirectError(c, "invalid_state")
+		h.redirectError(c, "missing_code")
 		return
 	}
 
@@ -91,8 +89,7 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 	case err == nil: // 老用戶
 		sid, serr := h.Sessions.Create(ctx, u.ID)
 		if serr != nil {
-			api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
-				"Service temporarily unavailable")
+			h.redirectError(c, "service_unavailable")
 			return
 		}
 		h.Cookies.SetSession(c, sid)
@@ -107,8 +104,7 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 			Picture:        gu.Picture,
 		})
 		if perr != nil {
-			api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
-				"Service temporarily unavailable")
+			h.redirectError(c, "service_unavailable")
 			return
 		}
 		h.Cookies.SetPendingSignup(c, token)

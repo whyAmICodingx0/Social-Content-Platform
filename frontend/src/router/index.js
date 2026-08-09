@@ -16,6 +16,13 @@ const routes = [
     component: () => import('../views/OnboardingView.vue'),
     meta: { guestOnly: true },
   },
+  {
+    // @ 是網址中的字面字元，:username 與 :slug 是參數。
+    // /@alice/my-post → params = { username: 'alice', slug: 'my-post' }
+    path: '/@:username/:slug',
+    name: 'post',
+    component: () => import('../views/PostView.vue'),
+  },
   // 之後會加入：/new、/edit/:id（V-5）、/@:username（V-6）、/@:username/:slug（V-4）
   {
     path: '/:pathMatch(.*)*',
