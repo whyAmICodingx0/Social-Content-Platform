@@ -161,3 +161,97 @@ func postDetailJSON(p *repository.Post) gin.H {
 		"published_at": publishedAt,
 	}
 }
+
+func (h *PostHandler) ListPublic(c *gin.Context) {
+	q := api.ParsePageQuery(c)
+
+	in := service.ListPostsInput{
+		OnlyPublished:    true,
+		OrderByPublished: true,
+		Asc:              q.Asc(),
+		Limit:            q.Limit,
+		Offset:           q.Offset(),
+	}
+	if tag := c.Query("tag"); tag != "" {
+		in.Tag = &tag
+	}
+
+	h.respondList(c, q, in)
+}
+
+func (h *PostHandler) ListByUser(c *gin.Context) {
+	q := api.ParsePageQuery(c)
+	username := c.Param("username")
+
+	h.respondList(c, q, service.ListPostsInput{
+		AuthorName:       &username,
+		OnlyPublished:    true,
+		OrderByPublished: true,
+		Asc:              q.Asc(),
+		Limit:            q.Limit,
+		Offset:           q.Offset(),
+	})
+}
+
+func (h *PostHandler) ListMine(c *gin.Context) {
+	u, ok := middleware.CurrentUser(c)
+	if !ok {
+		api.Fail(c, http.StatusUnauthorized, api.CodeUnauthenticated, "Authentication required")
+		return
+	}
+	q := api.ParsePageQuery(c)
+
+	in := service.ListPostsInput{
+		AuthorID:         &u.ID,
+		OrderByPublished: false,
+		Asc:              q.Asc(),
+		Limit:            q.Limit,
+		Offset:           q.Offset(),
+	}
+	if st := c.Query("status"); st == "draft" || st == "published" {
+		in.Status = &st
+	}
+
+	h.respondList(c, q, in)
+}
+
+func (h *PostHandler) respondList(c *gin.Context, q api.PageQuery, in service.ListPostsInput) {
+	posts, total, err := h.Svc.List(c.Request.Context(), in)
+	if err != nil {
+		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
+			"Service temporarily unavailable")
+		return
+	}
+
+	items := make([]gin.H, 0, len(posts))
+	for _, p := range posts {
+		items = append(items, postSummaryJSON(p))
+	}
+	api.OKList(c, items, api.NewPagination(q, total))
+}
+
+func postSummaryJSON(p *repository.Post) gin.H {
+	tags := p.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+	var publishedAt any
+	if p.PublishedAt != nil {
+		publishedAt = p.PublishedAt.UTC()
+	}
+	return gin.H{
+		"id":      p.ID,
+		"slug":    p.Slug,
+		"title":   p.Title,
+		"excerpt": p.Excerpt,
+		"status":  p.Status,
+		"author": gin.H{
+			"username":     p.AuthorUsername,
+			"display_name": p.AuthorDisplayName,
+			"avatar_url":   p.AuthorAvatarURL,
+		},
+		"tags":         tags,
+		"created_at":   p.CreatedAt.UTC(),
+		"published_at": publishedAt,
+	}
+}

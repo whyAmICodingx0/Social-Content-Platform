@@ -186,3 +186,29 @@ func makeExcerpt(md string) string {
 	}
 	return s
 }
+
+type ListPostsInput struct {
+	AuthorID         *string
+	AuthorName       *string
+	Status           *string
+	OnlyPublished    bool
+	Tag              *string
+	OrderByPublished bool
+	Asc              bool
+	Limit            int
+	Offset           int
+}
+
+func (s *PostService) List(ctx context.Context, in ListPostsInput) ([]*repository.Post, int, error) {
+	return s.Posts.List(ctx, repository.ListParams{
+		AuthorID:         in.AuthorID,
+		AuthorName:       in.AuthorName,
+		Status:           in.Status,
+		OnlyPublished:    in.OnlyPublished,
+		Tag:              in.Tag,
+		OrderByPublished: in.OrderByPublished,
+		Asc:              in.Asc,
+		Limit:            in.Limit,
+		Offset:           in.Offset,
+	})
+}

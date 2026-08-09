@@ -50,6 +50,10 @@ func main() {
 	postSvc := &service.PostService{Posts: postRepo}
 	postHandler := &handler.PostHandler{Svc: postSvc}
 
+	tagRepo := repository.NewTagRepository(pool)
+	tagSvc := &service.TagService{Tags: tagRepo}
+	tagHandler := &handler.TagHandler{Svc: tagSvc}
+
 	authSvc := &service.AuthService{Auth: authRepo, Users: userRepo}
 	authHandler := &handler.AuthHandler{
 		Google:   googleoauth.New(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURL),
@@ -88,6 +92,10 @@ func main() {
 	v1.PATCH("/posts/:id", auth.Required(), postHandler.Update)
 	v1.DELETE("/posts/:id", auth.Required(), postHandler.Delete)
 	v1.GET("/users/:username/posts/:slug", auth.Optional(), postHandler.GetBySlug)
+	v1.GET("/posts", postHandler.ListPublic)
+	v1.GET("/me/posts", auth.Required(), postHandler.ListMine)
+	v1.GET("/users/:username/posts", postHandler.ListByUser)
+	v1.GET("/tags", tagHandler.List)
 
 	if cfg.IsDev() {
 		dev := handler.DevHandler{Users: userRepo}

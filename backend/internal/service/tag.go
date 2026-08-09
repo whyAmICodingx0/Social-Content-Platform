@@ -1,6 +1,11 @@
 package service
 
-import "strings"
+import (
+	"context"
+	"strings"
+
+	"github.com/whyAmICodingx0/Social-Content-Platform/internal/repository"
+)
 
 const maxTagsPerPost = 5
 
@@ -37,4 +42,12 @@ func normalizeTags(raw []string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+type TagService struct {
+	Tags *repository.TagRepository
+}
+
+func (s *TagService) List(ctx context.Context, sortBy string, limit, offset int) ([]*repository.Tag, int, error) {
+	return s.Tags.List(ctx, sortBy, limit, offset)
 }

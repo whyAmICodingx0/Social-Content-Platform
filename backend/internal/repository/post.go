@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -304,4 +306,138 @@ func mapPostViolation(err error) error {
 		return ErrSlugTaken
 	}
 	return err
+}
+
+type ListParams struct {
+	AuthorID         *string
+	AuthorName       *string
+	Status           *string
+	OnlyPublished    bool
+	Tag              *string
+	OrderByPublished bool
+	Asc              bool
+	Limit            int
+	Offset           int
+}
+
+func (r *PostRepository) List(ctx context.Context, p ListParams) ([]*Post, int, error) {
+	where := []string{"p.deleted_at IS NULL", "u.deleted_at IS NULL"}
+	args := []any{}
+	add := func(cond string, val any) {
+		args = append(args, val)
+		where = append(where, fmt.Sprintf(cond, len(args)))
+	}
+
+	if p.AuthorID != nil {
+		add("p.author_id = $%d", *p.AuthorID)
+	}
+	if p.AuthorName != nil {
+		add("lower(u.username) = lower($%d)", *p.AuthorName)
+	}
+	if p.OnlyPublished {
+		where = append(where, "p.status = 'published'")
+	} else if p.Status != nil {
+		add("p.status = $%d", *p.Status)
+	}
+	if p.Tag != nil {
+		add(`EXISTS (
+			SELECT 1 FROM post_tags pt
+			JOIN tags t ON t.id = pt.tag_id
+			WHERE pt.post_id = p.id AND t.slug = $%d
+		)`, *p.Tag)
+	}
+
+	whereSQL := "WHERE " + strings.Join(where, " AND ")
+
+	var total int
+	countSQL := `SELECT count(*) FROM posts p JOIN users u ON u.id = p.author_id ` + whereSQL
+	if err := r.pool.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	if total == 0 {
+		return []*Post{}, 0, nil
+	}
+
+	sortCol := "p.created_at"
+	if p.OrderByPublished {
+		sortCol = "p.published_at"
+	}
+	dir := "DESC"
+	if p.Asc {
+		dir = "ASC"
+	}
+	orderSQL := fmt.Sprintf("ORDER BY %s %s, p.id %s", sortCol, dir, dir)
+
+	args = append(args, p.Limit, p.Offset)
+	listSQL := fmt.Sprintf(`
+		SELECT p.id, p.author_id, p.title, p.slug, p.excerpt, p.status,
+		       p.published_at, p.created_at, p.updated_at,
+		       u.username, u.display_name, u.avatar_url
+		FROM posts p
+		JOIN users u ON u.id = p.author_id
+		%s %s
+		LIMIT $%d OFFSET $%d`, whereSQL, orderSQL, len(args)-1, len(args))
+
+	rows, err := r.pool.Query(ctx, listSQL, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	posts := []*Post{}
+	ids := []string{}
+	for rows.Next() {
+		var po Post
+		if err := rows.Scan(
+			&po.ID, &po.AuthorID, &po.Title, &po.Slug, &po.Excerpt, &po.Status,
+			&po.PublishedAt, &po.CreatedAt, &po.UpdatedAt,
+			&po.AuthorUsername, &po.AuthorDisplayName, &po.AuthorAvatarURL,
+		); err != nil {
+			return nil, 0, err
+		}
+		po.Tags = []string{}
+		posts = append(posts, &po)
+		ids = append(ids, po.ID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	if err := r.attachTags(ctx, posts, ids); err != nil {
+		return nil, 0, err
+	}
+	return posts, total, nil
+}
+
+func (r *PostRepository) attachTags(ctx context.Context, posts []*Post, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	const q = `
+		SELECT pt.post_id, t.slug
+		FROM post_tags pt
+		JOIN tags t ON t.id = pt.tag_id
+		WHERE pt.post_id = ANY($1)
+		ORDER BY t.slug ASC`
+
+	rows, err := r.pool.Query(ctx, q, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	byID := make(map[string]*Post, len(posts))
+	for _, p := range posts {
+		byID[p.ID] = p
+	}
+	for rows.Next() {
+		var postID, slug string
+		if err := rows.Scan(&postID, &slug); err != nil {
+			return err
+		}
+		if p, ok := byID[postID]; ok {
+			p.Tags = append(p.Tags, slug)
+		}
+	}
+	return rows.Err()
 }
