@@ -19,12 +19,16 @@ const authorName = computed(
 const displayDate = computed(
   () => props.post.published_at || props.post.created_at
 )
+
+const authorUrl = computed(
+    () => `/@${props.post.author.username}`
+)
 </script>
 
 <template>
   <article class="card">
     <div class="card__meta">
-      <span class="card__author">{{ authorName }}</span>
+      <RouterLink :to="authorUrl" class="card__author">{{ authorName }}</RouterLink>
       <span class="card__dot">·</span>
       <time class="card__date">{{ formatDate(displayDate) }}</time>
       <span v-if="post.status === 'draft'" class="card__badge">草稿</span>
@@ -115,6 +119,10 @@ const displayDate = computed(
 }
 
 .card__tag:hover {
+  color: var(--color-accent);
+}
+
+.card__author:hover {
   color: var(--color-accent);
 }
 </style>

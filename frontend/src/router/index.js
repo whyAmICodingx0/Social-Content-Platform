@@ -42,7 +42,17 @@ const routes = [
     component: () => import('../views/MyPostsView.vue'),
     meta: { requiresAuth: true },
   },
-  // 之後會加入：/new、/edit/:id（V-5）、/@:username（V-6）、/@:username/:slug（V-4）
+  {
+    path: '/@:username',
+    name: 'profile',
+    component: () => import('../views/ProfileView.vue'),
+  },
+  {
+    path: '/settings',
+    name: 'settings',
+    component: () => import('../views/SettingsView.vue'),
+    meta: { requiresAuth: true },
+  },
   {
     path: '/:pathMatch(.*)*',
     name: 'not-found',

@@ -28,7 +28,9 @@ async function handleLogout() {
           <template v-if="auth.isAuthenticated">
             <RouterLink to="/new" class="header__link">寫文章</RouterLink>
             <RouterLink to="/me/posts" class="header__link">我的文章</RouterLink>
-            <span class="header__user">{{ auth.user.display_name || auth.user.username }}</span>
+            <RouterLink :to="`/@${auth.user.username}`" class="header__user">
+              {{ auth.user.display_name || auth.user.username }}
+            </RouterLink>
             <button class="btn btn--ghost" @click="handleLogout">登出</button>
           </template>
           <button v-else class="btn btn--primary" @click="login">使用 Google 登入</button>
@@ -82,5 +84,9 @@ async function handleLogout() {
 .header__link.router-link-active {
   color: var(--color-text);
   font-weight: 600;
+}
+
+.header__user:hover {
+  color: var(--color-accent);
 }
 </style>

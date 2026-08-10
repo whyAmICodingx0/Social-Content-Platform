@@ -48,6 +48,17 @@ export const useAuthStore = defineStore('auth', () => {
     return res.data
   }
 
+  /**
+   * 更新個人檔案。
+   * 放在 store 而非元件裡，是因為 user 是全域狀態——
+   * 存檔後 header 的名字要立刻跟著變。
+   */
+  async function updateProfile(payload) {
+    const res = await authApi.updateMe(payload)
+    user.value = res.data
+    return res.data
+  }
+
   async function logout() {
     try {
       await authApi.logout()
@@ -57,5 +68,5 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { user, ready, isAuthenticated, init, fetchMe, signup, logout }
+  return { user, ready, isAuthenticated, init, fetchMe, signup, updateProfile, logout }
 })
