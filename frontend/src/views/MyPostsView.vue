@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { postsApi } from '../api'
 import PostCard from '../components/PostCard.vue'
 import PaginationNav from '../components/PaginationNav.vue'
+import LoadingState from '../components/LoadingState.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -72,7 +73,7 @@ function goToPage(page) {
       </button>
     </nav>
 
-    <p v-if="loading" class="state">載入中…</p>
+    <LoadingState v-if="loading" />
     <p v-else-if="error" class="state state--error">{{ error }}</p>
     <p v-else-if="posts.length === 0" class="state">
       {{ currentStatus === 'draft' ? '沒有草稿。' : '還沒有任何文章。' }}
@@ -123,5 +124,13 @@ function goToPage(page) {
 .post-list {
   display: flex;
   flex-direction: column;
+}
+
+@media (max-width: 640px) {
+  .mine__header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+  }
 }
 </style>

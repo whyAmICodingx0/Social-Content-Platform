@@ -6,6 +6,8 @@ import { ApiError } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { renderMarkdown } from '../utils/markdown'
 import TagInput from '../components/TagInput.vue'
+import { setTitle } from '../utils/title'
+import LoadingState from '../components/LoadingState.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -68,6 +70,7 @@ async function loadPost() {
     content.value = p.content
     tags.value = [...p.tags]
     status.value = p.status
+    setTitle(`編輯：${p.title}`)
     snapshot.value = snapshotOf() // 重設基準，載入不算「已修改」
   } catch (err) {
     loadError.value =
@@ -154,7 +157,7 @@ watch(content, () => {
 
 <template>
   <div class="container container--narrow">
-    <p v-if="loading" class="state">載入中…</p>
+    <LoadingState v-if="loading" />
 
     <div v-else-if="loadError" class="state state--error">
       <p>{{ loadError }}</p>
@@ -362,5 +365,16 @@ watch(content, () => {
 .editor__actions .btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .editor__actions {
+    flex-wrap: wrap;
+  }
+
+  .editor__textarea,
+  .editor__preview {
+    min-height: 320px;
+  }
 }
 </style>

@@ -40,9 +40,9 @@ func Load() (*Config, error) {
 		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
 		GoogleRedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
-		PostLoginURL:       getEnv("POST_LOGIN_URL", "http://localhost:8080/api/v1/dev/whoami"),
-		OnboardingURL:      getEnv("ONBOARDING_URL", "http://localhost:8080/api/v1/dev/onboarding"),
-		AuthErrorURL:       getEnv("AUTH_ERROR_URL", "http://localhost:8080/api/v1/dev/whoami"),
+		PostLoginURL:       getEnv("POST_LOGIN_URL", "http://localhost:5173/"),
+		OnboardingURL:      getEnv("ONBOARDING_URL", "http://localhost:5173/onboarding"),
+		AuthErrorURL:       getEnv("AUTH_ERROR_URL", "http://localhost:5173/login"),
 	}
 
 	// spec 4.6 的護欄:正式環境不允許不安全的 cookie 設定

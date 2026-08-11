@@ -97,13 +97,6 @@ func main() {
 	v1.GET("/users/:username/posts", postHandler.ListByUser)
 	v1.GET("/tags", tagHandler.List)
 
-	if cfg.IsDev() {
-		dev := handler.DevHandler{Users: userRepo}
-		v1.GET("/dev/onboarding", dev.OnboardingPage)
-		v1.GET("/dev/whoami", auth.Optional(), dev.WhoAmI)
-		v1.POST("/dev/echo", dev.Echo)
-	}
-
 	log.Printf("listening on :%s (env=%s)", cfg.Port, cfg.AppEnv)
 	if err := r.Run(":" + cfg.Port); err != nil {
 		log.Fatal(err)

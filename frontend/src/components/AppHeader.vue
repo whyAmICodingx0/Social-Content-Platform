@@ -89,4 +89,24 @@ async function handleLogout() {
 .header__user:hover {
   color: var(--color-accent);
 }
+
+@media (max-width: 640px) {
+  .header__inner {
+    height: auto;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-3) 0;
+  }
+
+  .header__nav {
+    width: 100%;
+    gap: var(--space-3);
+    font-size: var(--text-sm);
+  }
+
+  .header__user {
+    margin-left: auto;
+  }
+}
 </style>

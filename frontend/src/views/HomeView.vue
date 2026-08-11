@@ -5,6 +5,7 @@ import { postsApi } from '../api'
 import PostCard from '../components/PostCard.vue'
 import TagFilter from '../components/TagFilter.vue'
 import PaginationNav from '../components/PaginationNav.vue'
+import LoadingState from '../components/LoadingState.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -51,7 +52,7 @@ function goToPage(page) {
   <div class="container container--narrow">
     <TagFilter :active="currentTag" />
 
-    <p v-if="loading" class="state">載入中…</p>
+    <LoadingState v-if="loading" />
 
     <p v-else-if="error" class="state state--error">
       {{ error }}

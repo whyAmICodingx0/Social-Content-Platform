@@ -3,6 +3,7 @@ import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import AppHeader from './components/AppHeader.vue'
+import LoadingState from './components/LoadingState.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -25,7 +26,8 @@ onMounted(async () => {
   <main class="app-main">
     <!-- 身分確認完成前不渲染內容，避免畫面閃爍 -->
     <RouterView v-if="auth.ready" />
-    <p v-else class="state">載入中…</p>
+    <RouterView v-if="auth.ready" />
+    <LoadingState v-else />
   </main>
 </template>
 

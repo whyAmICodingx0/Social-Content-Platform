@@ -6,12 +6,14 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // 所有 /api 開頭的請求轉發到後端。
-      // 瀏覽器只看到 localhost:5173 → 同源 → cookie 正常運作。
-      '/api': {
-        target: 'http://localhost:8080',
-        changeOrigin: false, // 保留原始 Origin header，讓後端的 CSRF 白名單檢查通過
-      },
+      '/api': { target: 'http://localhost:8080', changeOrigin: false },
+    },
+  },
+  // npm run preview 用來檢視打包後的成品，同樣需要 proxy 才能連後端
+  preview: {
+    port: 4173,
+    proxy: {
+      '/api': { target: 'http://localhost:8080', changeOrigin: false },
     },
   },
 })

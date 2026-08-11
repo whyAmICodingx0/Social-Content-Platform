@@ -8,6 +8,8 @@ import { formatDate } from '../utils/format'
 import UserAvatar from '../components/UserAvatar.vue'
 import PostCard from '../components/PostCard.vue'
 import PaginationNav from '../components/PaginationNav.vue'
+import { setTitle } from '../utils/title'
+import LoadingState from '../components/LoadingState.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -40,6 +42,7 @@ async function loadProfile() {
   try {
     const res = await usersApi.get(username.value)
     profile.value = res.data
+    setTitle(profile.value.display_name || profile.value.username)
   } catch (err) {
     profile.value = null
     if (err instanceof ApiError && err.status === 404) {
@@ -83,7 +86,7 @@ function goToPage(page) {
 
 <template>
   <div class="container container--narrow">
-    <p v-if="loading" class="state">載入中…</p>
+    <LoadingState v-if="loading" />
 
     <div v-else-if="notFound" class="state">
       <h1 class="notfound__title">找不到這位使用者</h1>
@@ -198,5 +201,12 @@ function goToPage(page) {
 .post-list {
   display: flex;
   flex-direction: column;
+}
+
+@media (max-width: 640px) {
+  .profile {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
 }
 </style>

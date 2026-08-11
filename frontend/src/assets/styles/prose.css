@@ -114,3 +114,21 @@
 
 .prose strong { font-weight: 700; }
 .prose em { font-style: italic; }
+
+/* 長網址、長英文單字不要撐破版面 */
+.prose {
+  overflow-wrap: break-word;
+}
+
+@media (max-width: 640px) {
+  .prose {
+    font-size: var(--text-base);
+  }
+
+  /* 表格在窄螢幕改為可橫向捲動，而不是壓縮到看不清楚 */
+  .prose table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}

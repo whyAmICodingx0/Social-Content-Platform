@@ -7,6 +7,8 @@ import { postsApi } from '../api'
 import { ApiError } from '../api/client'
 import { renderMarkdown } from '../utils/markdown'
 import { formatDate } from '../utils/format'
+import { setTitle } from '../utils/title'
+import LoadingState from '../components/LoadingState.vue'
 
 const route = useRoute()
 
@@ -64,15 +66,18 @@ async function load() {
   notFound.value = false
   error.value = null
   post.value = null
+  
 
   try {
     const res = await postsApi.get(route.params.username, route.params.slug)
     post.value = res.data
+    setTitle(post.value.title)
   } catch (err) {
     // 404 涵蓋三種情況：文章不存在、已刪除、他人的草稿。
     // 後端刻意不區分（spec 7.4），前端也不該猜。
     if (err instanceof ApiError && err.status === 404) {
       notFound.value = true
+      setTitle('找不到文章')
     } else {
       error.value = err.message
     }
@@ -86,7 +91,7 @@ watch(() => [route.params.username, route.params.slug], load, { immediate: true 
 
 <template>
   <div class="container container--narrow">
-    <p v-if="loading" class="state">載入中…</p>
+    <LoadingState v-if="loading" />
 
     <div v-else-if="notFound" class="state">
       <h1 class="notfound__title">找不到這篇文章</h1>
