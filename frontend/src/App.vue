@@ -26,7 +26,6 @@ onMounted(async () => {
   <main class="app-main">
     <!-- 身分確認完成前不渲染內容，避免畫面閃爍 -->
     <RouterView v-if="auth.ready" />
-    <RouterView v-if="auth.ready" />
     <LoadingState v-else />
   </main>
 </template>

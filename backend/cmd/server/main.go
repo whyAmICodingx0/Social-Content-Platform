@@ -15,6 +15,7 @@ import (
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/repository"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/service"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/store"
+	"github.com/whyAmICodingx0/Social-Content-Platform/internal/web"
 )
 
 func main() {
@@ -29,7 +30,10 @@ func main() {
 	}
 	defer pool.Close()
 
-	rdb := store.NewRedisClient(cfg.RedisAddr)
+	rdb, err := store.NewRedisClient(cfg.RedisURL)
+	if err != nil {
+		log.Fatalf("redis: %v", err)
+	}
 	defer rdb.Close()
 
 	// wiring:repository → service → handler
@@ -96,6 +100,15 @@ func main() {
 	v1.GET("/me/posts", auth.Required(), postHandler.ListMine)
 	v1.GET("/users/:username/posts", postHandler.ListByUser)
 	v1.GET("/tags", tagHandler.List)
+
+	if web.Available() {
+		if err := web.Register(r); err != nil {
+			log.Fatalf("web: %v", err)
+		}
+		log.Println("serving embedded frontend")
+	} else {
+		log.Println("no embedded frontend (dev mode — use vite dev server)")
+	}
 
 	log.Printf("listening on :%s (env=%s)", cfg.Port, cfg.AppEnv)
 	if err := r.Run(":" + cfg.Port); err != nil {

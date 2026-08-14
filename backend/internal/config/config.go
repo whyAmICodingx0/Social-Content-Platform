@@ -16,7 +16,7 @@ type Config struct {
 	AppEnv             string // "dev" | "prod"
 	Port               string
 	DatabaseURL        string
-	RedisAddr          string   // Redis 基建(下一步)才會用
+	RedisURL           string
 	CookieSecure       bool     // spec 4.6:dev=false、prod=true
 	FrontendOrigins    []string // spec 4.13:CSRF Origin 白名單
 	GoogleClientID     string   // 任務 F 才會填
@@ -34,7 +34,7 @@ func Load() (*Config, error) {
 		AppEnv:             getEnv("APP_ENV", "dev"),
 		Port:               getEnv("PORT", "8080"),
 		DatabaseURL:        getEnv("DATABASE_URL", "postgres://app:devpassword@localhost:5432/social_dev?sslmode=disable"),
-		RedisAddr:          getEnv("REDIS_ADDR", "localhost:6379"),
+		RedisURL:           getEnv("REDIS_URL", "redis://localhost:6379"),
 		CookieSecure:       getEnv("COOKIE_SECURE", "false") == "true",
 		FrontendOrigins:    splitAndTrim(getEnv("FRONTEND_ORIGINS", "http://localhost:5173")),
 		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
