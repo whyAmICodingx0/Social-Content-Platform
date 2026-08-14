@@ -127,3 +127,63 @@ CREATE TABLE post_tags (
 
 -- 反向查詢：「某個標籤底下有哪些文章」
 CREATE INDEX post_tags_tag_id_idx ON post_tags (tag_id);
+
+-- ============================================================
+-- 6. post_likes：文章按讚（Phase 2）
+--    關聯型資料：hard delete，不做 soft delete。
+-- ============================================================
+CREATE TABLE post_likes (
+    user_id     UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    post_id     UUID        NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    -- 複合主鍵：DB 層保證同一人不能對同一篇文章按讚兩次，
+    -- 讓 PUT /like 天然冪等。
+    PRIMARY KEY (user_id, post_id)
+);
+
+-- 反向查詢：「這篇文章有幾個讚」
+CREATE INDEX post_likes_post_id_idx ON post_likes (post_id);
+
+
+-- ============================================================
+-- 7. comments：單層留言（Phase 2）
+--    內容型資料：soft delete，與 posts 一致。
+-- ============================================================
+CREATE TABLE comments (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    post_id     UUID        NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    author_id   UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content     TEXT        NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at  TIMESTAMPTZ
+);
+
+-- 某篇文章的留言，依時間正序（索引方向與查詢方向一致）
+CREATE INDEX comments_post_idx
+    ON comments (post_id, created_at ASC, id ASC)
+    WHERE deleted_at IS NULL;
+
+CREATE INDEX comments_author_idx
+    ON comments (author_id)
+    WHERE deleted_at IS NULL;
+
+
+-- ============================================================
+-- 8. follows：使用者對使用者的自關聯多對多（Phase 2）
+--    關聯型資料：hard delete。
+-- ============================================================
+CREATE TABLE follows (
+    follower_id  UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    followee_id  UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    PRIMARY KEY (follower_id, followee_id),
+
+    -- DB 層防止追蹤自己；應用層也會檢查，但權威在這裡。
+    CONSTRAINT follows_no_self CHECK (follower_id <> followee_id)
+);
+
+-- 反向查詢：「誰追蹤我」（粉絲列表、粉絲數）
+CREATE INDEX follows_followee_idx ON follows (followee_id);
