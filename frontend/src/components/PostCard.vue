@@ -1,28 +1,32 @@
 <script setup>
 import { computed } from 'vue'
 import { formatDate } from '../utils/format'
+import LikeButton from './LikeButton.vue'
 
 const props = defineProps({
   post: { type: Object, required: true },
 })
 
-// 文章網址：/@username/slug（決策 #5）
+const emit = defineEmits(['like-update'])
+
 const postUrl = computed(
   () => `/@${props.post.author.username}/${props.post.slug}`
 )
+
+const authorUrl = computed(() => `/@${props.post.author.username}`)
 
 const authorName = computed(
   () => props.post.author.display_name || props.post.author.username
 )
 
-// 草稿沒有 published_at，退回 created_at
 const displayDate = computed(
   () => props.post.published_at || props.post.created_at
 )
 
-const authorUrl = computed(
-    () => `/@${props.post.author.username}`
-)
+// 把讚的變化往上傳給列表頁，由它更新該筆資料
+function onLikeUpdate(state) {
+  emit('like-update', { id: props.post.id, ...state })
+}
 </script>
 
 <template>
@@ -39,13 +43,29 @@ const authorUrl = computed(
       <p v-if="post.excerpt" class="card__excerpt">{{ post.excerpt }}</p>
     </RouterLink>
 
-    <ul v-if="post.tags.length" class="card__tags">
-      <li v-for="tag in post.tags" :key="tag">
-        <RouterLink :to="{ path: '/', query: { tag } }" class="card__tag">
-          {{ tag }}
+    <div class="card__footer">
+      <ul v-if="post.tags.length" class="card__tags">
+        <li v-for="tag in post.tags" :key="tag">
+          <RouterLink :to="{ path: '/', query: { tag } }" class="card__tag">
+            {{ tag }}
+          </RouterLink>
+        </li>
+      </ul>
+
+      <div class="card__stats">
+        <!-- 草稿不顯示按讚（後端一律 404，決策 #43） -->
+        <LikeButton
+          v-if="post.status === 'published'"
+          :post-id="post.id"
+          :count="post.like_count"
+          :liked="post.liked_by_me"
+          @update="onLikeUpdate"
+        />
+        <RouterLink v-if="post.comment_count > 0" :to="postUrl" class="card__comments">
+          {{ post.comment_count }} 則留言
         </RouterLink>
-      </li>
-    </ul>
+      </div>
+    </div>
   </article>
 </template>
 
@@ -67,6 +87,10 @@ const authorUrl = computed(
 .card__author {
   font-weight: 550;
   color: var(--color-text);
+}
+
+.card__author:hover {
+  color: var(--color-accent);
 }
 
 .card__badge {
@@ -94,19 +118,24 @@ const authorUrl = computed(
 .card__excerpt {
   color: var(--color-text-muted);
   line-height: var(--leading-normal);
-  /* 最多顯示兩行，超過以 … 收尾 */
   display: -webkit-box;
   -webkit-line-clamp: 2;
-  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
 }
 
 .card__tags {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  margin-top: var(--space-3);
 }
 
 .card__tag {
@@ -122,7 +151,32 @@ const authorUrl = computed(
   color: var(--color-accent);
 }
 
-.card__author:hover {
+.card__stats {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.card__comments {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.card__comments:hover {
   color: var(--color-accent);
+}
+
+@media (max-width: 640px) {
+  .card__footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+
+  .card__stats {
+    margin-left: 0;
+  }
 }
 </style>

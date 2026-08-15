@@ -16,6 +16,17 @@ type PostHandler struct {
 	Svc *service.PostService
 }
 
+// viewerID 取出目前使用者 id；匿名時回 nil。
+// ⚠️ 決策 #49：回 nil 而非 uuid.Nil —— pgx 會送出真正的 SQL NULL。
+func viewerID(c *gin.Context) *string {
+	if u, ok := middleware.CurrentUser(c); ok {
+		return &u.ID
+	}
+	return nil
+}
+
+// ---------- POST /api/v1/posts ----------
+
 type createPostRequest struct {
 	Title   string   `json:"title"`
 	Content string   `json:"content"`
@@ -50,20 +61,19 @@ func (h *PostHandler) Create(c *gin.Context) {
 	api.Created(c, postDetailJSON(post))
 }
 
-func (h *PostHandler) GetBySlug(c *gin.Context) {
-	viewerID := ""
-	if u, ok := middleware.CurrentUser(c); ok {
-		viewerID = u.ID
-	}
+// ---------- GET /api/v1/users/:username/posts/:slug（optional auth） ----------
 
+func (h *PostHandler) GetBySlug(c *gin.Context) {
 	post, err := h.Svc.GetForReader(c.Request.Context(),
-		c.Param("username"), c.Param("slug"), viewerID)
+		c.Param("username"), c.Param("slug"), viewerID(c))
 	if err != nil {
 		h.failPost(c, err)
 		return
 	}
 	api.OK(c, postDetailJSON(post))
 }
+
+// ---------- PATCH /api/v1/posts/:id ----------
 
 type updatePostRequest struct {
 	Title   *string  `json:"title"`
@@ -103,6 +113,8 @@ func (h *PostHandler) Update(c *gin.Context) {
 	api.OK(c, postDetailJSON(post))
 }
 
+// ---------- DELETE /api/v1/posts/:id ----------
+
 func (h *PostHandler) Delete(c *gin.Context) {
 	u, ok := middleware.CurrentUser(c)
 	if !ok {
@@ -116,52 +128,9 @@ func (h *PostHandler) Delete(c *gin.Context) {
 	api.NoContent(c)
 }
 
-func (h *PostHandler) failPost(c *gin.Context, err error) {
-	var vErr *service.ValidationError
-	switch {
-	case errors.As(err, &vErr):
-		api.FailWithFields(c, http.StatusBadRequest, api.CodeValidationError,
-			"Request validation failed", map[string]string{vErr.Field: vErr.Message})
-	case errors.Is(err, repository.ErrNotFound):
-		api.Fail(c, http.StatusNotFound, api.CodeNotFound, "post not found")
-	case errors.Is(err, service.ErrForbidden):
-		api.Fail(c, http.StatusForbidden, api.CodeForbidden, "you are not the author of this post")
-	case errors.Is(err, service.ErrSlugExhausted):
-		api.Fail(c, http.StatusConflict, api.CodeSlugConflict, "could not generate a unique slug")
-	default:
-		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
-			"Service temporarily unavailable")
-	}
-}
+// ---------- 列表 ----------
 
-func postDetailJSON(p *repository.Post) gin.H {
-	tags := p.Tags
-	if tags == nil {
-		tags = []string{}
-	}
-	var publishedAt any
-	if p.PublishedAt != nil {
-		publishedAt = p.PublishedAt.UTC()
-	}
-	return gin.H{
-		"id":      p.ID,
-		"slug":    p.Slug,
-		"title":   p.Title,
-		"content": p.ContentMD,
-		"excerpt": p.Excerpt,
-		"status":  p.Status,
-		"author": gin.H{
-			"username":     p.AuthorUsername,
-			"display_name": p.AuthorDisplayName,
-			"avatar_url":   p.AuthorAvatarURL,
-		},
-		"tags":         tags,
-		"created_at":   p.CreatedAt.UTC(),
-		"updated_at":   p.UpdatedAt.UTC(),
-		"published_at": publishedAt,
-	}
-}
-
+// GET /api/v1/posts（optional auth，決策 #47）
 func (h *PostHandler) ListPublic(c *gin.Context) {
 	q := api.ParsePageQuery(c)
 
@@ -171,6 +140,7 @@ func (h *PostHandler) ListPublic(c *gin.Context) {
 		Asc:              q.Asc(),
 		Limit:            q.Limit,
 		Offset:           q.Offset(),
+		ViewerID:         viewerID(c),
 	}
 	if tag := c.Query("tag"); tag != "" {
 		in.Tag = &tag
@@ -179,6 +149,7 @@ func (h *PostHandler) ListPublic(c *gin.Context) {
 	h.respondList(c, q, in)
 }
 
+// GET /api/v1/users/:username/posts（optional auth，決策 #47）
 func (h *PostHandler) ListByUser(c *gin.Context) {
 	q := api.ParsePageQuery(c)
 	username := c.Param("username")
@@ -190,9 +161,11 @@ func (h *PostHandler) ListByUser(c *gin.Context) {
 		Asc:              q.Asc(),
 		Limit:            q.Limit,
 		Offset:           q.Offset(),
+		ViewerID:         viewerID(c),
 	})
 }
 
+// GET /api/v1/me/posts（required auth）
 func (h *PostHandler) ListMine(c *gin.Context) {
 	u, ok := middleware.CurrentUser(c)
 	if !ok {
@@ -207,6 +180,7 @@ func (h *PostHandler) ListMine(c *gin.Context) {
 		Asc:              q.Asc(),
 		Limit:            q.Limit,
 		Offset:           q.Offset(),
+		ViewerID:         &u.ID,
 	}
 	if st := c.Query("status"); st == "draft" || st == "published" {
 		in.Status = &st
@@ -230,6 +204,59 @@ func (h *PostHandler) respondList(c *gin.Context, q api.PageQuery, in service.Li
 	api.OKList(c, items, api.NewPagination(q, total))
 }
 
+// ---------- 共用 ----------
+
+func (h *PostHandler) failPost(c *gin.Context, err error) {
+	var vErr *service.ValidationError
+	switch {
+	case errors.As(err, &vErr):
+		api.FailWithFields(c, http.StatusBadRequest, api.CodeValidationError,
+			"Request validation failed", map[string]string{vErr.Field: vErr.Message})
+	case errors.Is(err, repository.ErrNotFound):
+		api.Fail(c, http.StatusNotFound, api.CodeNotFound, "post not found")
+	case errors.Is(err, service.ErrForbidden):
+		api.Fail(c, http.StatusForbidden, api.CodeForbidden, "you are not the author of this post")
+	case errors.Is(err, service.ErrSlugExhausted):
+		api.Fail(c, http.StatusConflict, api.CodeSlugConflict, "could not generate a unique slug")
+	default:
+		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
+			"Service temporarily unavailable")
+	}
+}
+
+// postDetailJSON：Post Detail shape（含 Phase 2 計數欄位）
+func postDetailJSON(p *repository.Post) gin.H {
+	tags := p.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+	var publishedAt any
+	if p.PublishedAt != nil {
+		publishedAt = p.PublishedAt.UTC()
+	}
+	return gin.H{
+		"id":      p.ID,
+		"slug":    p.Slug,
+		"title":   p.Title,
+		"content": p.ContentMD,
+		"excerpt": p.Excerpt,
+		"status":  p.Status,
+		"author": gin.H{
+			"username":     p.AuthorUsername,
+			"display_name": p.AuthorDisplayName,
+			"avatar_url":   p.AuthorAvatarURL,
+		},
+		"tags":          tags,
+		"created_at":    p.CreatedAt.UTC(),
+		"updated_at":    p.UpdatedAt.UTC(),
+		"published_at":  publishedAt,
+		"like_count":    p.LikeCount,
+		"comment_count": p.CommentCount,
+		"liked_by_me":   p.LikedByMe,
+	}
+}
+
+// postSummaryJSON：列表用（不含 content 與 updated_at）
 func postSummaryJSON(p *repository.Post) gin.H {
 	tags := p.Tags
 	if tags == nil {
@@ -250,8 +277,11 @@ func postSummaryJSON(p *repository.Post) gin.H {
 			"display_name": p.AuthorDisplayName,
 			"avatar_url":   p.AuthorAvatarURL,
 		},
-		"tags":         tags,
-		"created_at":   p.CreatedAt.UTC(),
-		"published_at": publishedAt,
+		"tags":          tags,
+		"created_at":    p.CreatedAt.UTC(),
+		"published_at":  publishedAt,
+		"like_count":    p.LikeCount,
+		"comment_count": p.CommentCount,
+		"liked_by_me":   p.LikedByMe,
 	}
 }

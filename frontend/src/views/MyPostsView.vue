@@ -52,6 +52,15 @@ function setFilter(value) {
 function goToPage(page) {
   router.push({ path: '/me/posts', query: { ...route.query, page } })
 }
+
+// 讚的變化只更新該筆資料，不重新抓整個列表
+function onLikeUpdate({ id, count, liked }) {
+  const p = posts.value.find((x) => x.id === id)
+  if (p) {
+    p.like_count = count
+    p.liked_by_me = liked
+  }
+}
 </script>
 
 <template>
@@ -81,7 +90,12 @@ function goToPage(page) {
 
     <template v-else>
       <div class="post-list">
-        <PostCard v-for="post in posts" :key="post.id" :post="post" />
+        <PostCard
+          v-for="post in posts"
+          :key="post.id"
+          :post="post"
+          @like-update="onLikeUpdate"
+        />
       </div>
       <PaginationNav v-if="pagination" :pagination="pagination" @change="goToPage" />
     </template>

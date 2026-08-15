@@ -162,13 +162,18 @@ func (s *PostService) Delete(ctx context.Context, actorID, postID string) error 
 	return s.Posts.SoftDelete(ctx, postID)
 }
 
-func (s *PostService) GetForReader(ctx context.Context, username, slug, viewerID string) (*repository.Post, error) {
-	p, err := s.Posts.GetByAuthorAndSlug(ctx, username, slug)
+// GetForReader：spec 7.4 的可見性規則。
+// viewerID 為 nil 代表匿名（optional auth 沒驗出使用者）。
+// draft 對非作者一律回 ErrNotFound —— 不回 403，避免洩漏草稿存在。
+func (s *PostService) GetForReader(ctx context.Context, username, slug string, viewerID *string) (*repository.Post, error) {
+	p, err := s.Posts.GetByAuthorAndSlug(ctx, username, slug, viewerID)
 	if err != nil {
 		return nil, err
 	}
-	if p.Status == "draft" && p.AuthorID != viewerID {
-		return nil, repository.ErrNotFound
+	if p.Status == "draft" {
+		if viewerID == nil || p.AuthorID != *viewerID {
+			return nil, repository.ErrNotFound
+		}
 	}
 	return p, nil
 }
@@ -197,6 +202,7 @@ type ListPostsInput struct {
 	Asc              bool
 	Limit            int
 	Offset           int
+	ViewerID         *string
 }
 
 func (s *PostService) List(ctx context.Context, in ListPostsInput) ([]*repository.Post, int, error) {
@@ -210,5 +216,6 @@ func (s *PostService) List(ctx context.Context, in ListPostsInput) ([]*repositor
 		Asc:              in.Asc,
 		Limit:            in.Limit,
 		Offset:           in.Offset,
+		ViewerID:         in.ViewerID,
 	})
 }

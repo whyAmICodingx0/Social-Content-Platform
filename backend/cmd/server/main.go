@@ -54,6 +54,10 @@ func main() {
 	postSvc := &service.PostService{Posts: postRepo}
 	postHandler := &handler.PostHandler{Svc: postSvc}
 
+	likeRepo := repository.NewLikeRepository(pool)
+	likeSvc := &service.LikeService{Likes: likeRepo}
+	likeHandler := &handler.LikeHandler{Svc: likeSvc}
+
 	tagRepo := repository.NewTagRepository(pool)
 	tagSvc := &service.TagService{Tags: tagRepo}
 	tagHandler := &handler.TagHandler{Svc: tagSvc}
@@ -90,16 +94,18 @@ func main() {
 	v1.POST("/auth/signup", authHandler.Signup)
 	v1.POST("/auth/logout", authHandler.Logout)
 	v1.GET("/me", auth.Required(), authHandler.Me)
-	v1.PATCH("/me", auth.Required(), userHandler.PatchMe)    // 新增
-	v1.GET("/users/:username", userHandler.GetPublicProfile) // 新增（純公開）
+	v1.PATCH("/me", auth.Required(), userHandler.PatchMe)                     // 新增
+	v1.GET("/users/:username", auth.Optional(), userHandler.GetPublicProfile) // 新增（純公開）
 	v1.POST("/posts", auth.Required(), postHandler.Create)
 	v1.PATCH("/posts/:id", auth.Required(), postHandler.Update)
 	v1.DELETE("/posts/:id", auth.Required(), postHandler.Delete)
 	v1.GET("/users/:username/posts/:slug", auth.Optional(), postHandler.GetBySlug)
-	v1.GET("/posts", postHandler.ListPublic)
+	v1.GET("/posts", auth.Optional(), postHandler.ListPublic)
 	v1.GET("/me/posts", auth.Required(), postHandler.ListMine)
-	v1.GET("/users/:username/posts", postHandler.ListByUser)
+	v1.GET("/users/:username/posts", auth.Optional(), postHandler.ListByUser)
 	v1.GET("/tags", tagHandler.List)
+	v1.PUT("/posts/:id/like", auth.Required(), likeHandler.Like)
+	v1.DELETE("/posts/:id/like", auth.Required(), likeHandler.Unlike)
 
 	if web.Available() {
 		if err := web.Register(r); err != nil {

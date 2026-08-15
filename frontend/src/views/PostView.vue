@@ -9,6 +9,7 @@ import { renderMarkdown } from '../utils/markdown'
 import { formatDate } from '../utils/format'
 import { setTitle } from '../utils/title'
 import LoadingState from '../components/LoadingState.vue'
+import LikeButton from '../components/LikeButton.vue'
 
 const route = useRoute()
 
@@ -86,6 +87,13 @@ async function load() {
   }
 }
 
+function onLikeUpdate({ count, liked }) {
+  if (post.value) {
+    post.value.like_count = count
+    post.value.liked_by_me = liked
+  }
+}
+
 watch(() => [route.params.username, route.params.slug], load, { immediate: true })
 </script>
 
@@ -119,6 +127,19 @@ watch(() => [route.params.username, route.params.slug], load, { immediate: true 
             </RouterLink>
           </li>
         </ul>
+
+        <div v-if="post.status === 'published'" class="post__engage">
+          <LikeButton
+            :post-id="post.id"
+            :count="post.like_count"
+            :liked="post.liked_by_me"
+            size="md"
+            @update="onLikeUpdate"
+          />
+          <span v-if="post.comment_count > 0" class="post__comment-count">
+            {{ post.comment_count }} 則留言
+          </span>
+        </div>
 
         <div v-if="isAuthor" class="post__actions">
           <RouterLink :to="editUrl" class="btn btn--ghost">編輯</RouterLink>
@@ -328,5 +349,17 @@ watch(() => [route.params.username, route.params.slug], load, { immediate: true 
 .post__delete:hover {
   border-color: var(--color-danger);
   color: var(--color-danger);
+}
+
+.post__engage {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.post__comment-count {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
 }
 </style>

@@ -19,6 +19,9 @@ export const postsApi = {
   create: (data) => api.post('/posts', data),
   update: (id, data) => api.patch(`/posts/${id}`, data),
   remove: (id) => api.del(`/posts/${id}`),
+
+  like: (id) => api.put(`/posts/${id}/like`),
+  unlike: (id) => api.del(`/posts/${id}/like`),
 }
 
 export const usersApi = {

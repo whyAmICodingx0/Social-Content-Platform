@@ -16,6 +16,24 @@ import (
 // service 捕獲後換候選重試整個 transaction（spec 7.6）。
 var ErrSlugTaken = errors.New("repository: slug taken")
 
+// 計數聚合的共用 SQL 片段（決策 #50）。
+//
+// ⚠️ 必須用 LEFT JOIN LATERAL 各自聚合，不可同時 JOIN post_likes 與 comments：
+//
+//	那會產生笛卡爾乘積（3 個讚 × 4 則留言 = 12 列），兩邊的 count 都會變成 12。
+//	COUNT(DISTINCT) 雖能算對，但那 12 列仍被實體化，只是把錯的算對。
+//
+// $likeParam 是 viewer 的 user id，未登入時必須是真正的 SQL NULL
+// （決策 #49：不可用 uuid.Nil —— 那是合法 UUID，結果碰巧正確但語意錯誤）。
+const countsJoin = `
+	LEFT JOIN LATERAL (
+		SELECT count(*) AS cnt FROM post_likes pl WHERE pl.post_id = p.id
+	) lc ON true
+	LEFT JOIN LATERAL (
+		SELECT count(*) AS cnt FROM comments c
+		WHERE c.post_id = p.id AND c.deleted_at IS NULL
+	) cc ON true`
+
 type Post struct {
 	ID          string
 	AuthorID    string
@@ -33,6 +51,11 @@ type Post struct {
 	AuthorDisplayName *string
 	AuthorAvatarURL   *string
 	Tags              []string
+
+	// 以下由聚合查詢帶出（Phase 2）
+	LikeCount    int
+	CommentCount int
+	LikedByMe    bool
 }
 
 type PostRepository struct {
@@ -201,25 +224,31 @@ func (r *PostRepository) GetByID(ctx context.Context, postID string) (*Post, err
 	return &p, nil
 }
 
-// GetByAuthorAndSlug 讀單篇（spec 7.4），一併帶出作者資訊與標籤。
-// users 也要 deleted_at IS NULL：作者被軟刪 → 文章視為不存在。
-func (r *PostRepository) GetByAuthorAndSlug(ctx context.Context, username, slug string) (*Post, error) {
-	const q = `
+// GetByAuthorAndSlug 讀單篇（spec 7.4），一併帶出作者資訊、標籤與計數。
+// viewerID 為 nil 代表匿名 —— pgx 會送出真正的 SQL NULL（決策 #49）。
+func (r *PostRepository) GetByAuthorAndSlug(ctx context.Context, username, slug string, viewerID *string) (*Post, error) {
+	q := `
 		SELECT p.id, p.author_id, p.title, p.slug, p.content_md, p.excerpt,
 		       p.status, p.published_at, p.created_at, p.updated_at,
-		       u.username, u.display_name, u.avatar_url
+		       u.username, u.display_name, u.avatar_url,
+		       COALESCE(lc.cnt, 0), COALESCE(cc.cnt, 0),
+		       EXISTS (
+		           SELECT 1 FROM post_likes
+		           WHERE post_id = p.id AND user_id = $3
+		       )
 		FROM posts p
-		JOIN users u ON u.id = p.author_id
+		JOIN users u ON u.id = p.author_id` + countsJoin + `
 		WHERE lower(u.username) = lower($1)
 		  AND p.slug = $2
 		  AND p.deleted_at IS NULL
 		  AND u.deleted_at IS NULL`
 
 	var p Post
-	err := r.pool.QueryRow(ctx, q, username, slug).Scan(
+	err := r.pool.QueryRow(ctx, q, username, slug, viewerID).Scan(
 		&p.ID, &p.AuthorID, &p.Title, &p.Slug, &p.ContentMD, &p.Excerpt,
 		&p.Status, &p.PublishedAt, &p.CreatedAt, &p.UpdatedAt,
 		&p.AuthorUsername, &p.AuthorDisplayName, &p.AuthorAvatarURL,
+		&p.LikeCount, &p.CommentCount, &p.LikedByMe,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -318,8 +347,10 @@ type ListParams struct {
 	Asc              bool
 	Limit            int
 	Offset           int
+	ViewerID         *string // nil = 匿名（決策 #49）
 }
 
+// List 回傳文章清單與符合條件的總筆數。
 func (r *PostRepository) List(ctx context.Context, p ListParams) ([]*Post, int, error) {
 	where := []string{"p.deleted_at IS NULL", "u.deleted_at IS NULL"}
 	args := []any{}
@@ -349,6 +380,7 @@ func (r *PostRepository) List(ctx context.Context, p ListParams) ([]*Post, int, 
 
 	whereSQL := "WHERE " + strings.Join(where, " AND ")
 
+	// 先算總數。計數欄位不影響筆數，故 count 查詢不需要 LATERAL。
 	var total int
 	countSQL := `SELECT count(*) FROM posts p JOIN users u ON u.id = p.author_id ` + whereSQL
 	if err := r.pool.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
@@ -368,15 +400,27 @@ func (r *PostRepository) List(ctx context.Context, p ListParams) ([]*Post, int, 
 	}
 	orderSQL := fmt.Sprintf("ORDER BY %s %s, p.id %s", sortCol, dir, dir)
 
-	args = append(args, p.Limit, p.Offset)
+	// viewer 與分頁參數接在篩選參數之後
+	args = append(args, p.ViewerID, p.Limit, p.Offset)
+	viewerIdx := len(args) - 2
+	limitIdx := len(args) - 1
+	offsetIdx := len(args)
+
 	listSQL := fmt.Sprintf(`
 		SELECT p.id, p.author_id, p.title, p.slug, p.excerpt, p.status,
 		       p.published_at, p.created_at, p.updated_at,
-		       u.username, u.display_name, u.avatar_url
+		       u.username, u.display_name, u.avatar_url,
+		       COALESCE(lc.cnt, 0), COALESCE(cc.cnt, 0),
+		       EXISTS (
+		           SELECT 1 FROM post_likes
+		           WHERE post_id = p.id AND user_id = $%d
+		       )
 		FROM posts p
 		JOIN users u ON u.id = p.author_id
+		%s
 		%s %s
-		LIMIT $%d OFFSET $%d`, whereSQL, orderSQL, len(args)-1, len(args))
+		LIMIT $%d OFFSET $%d`,
+		viewerIdx, countsJoin, whereSQL, orderSQL, limitIdx, offsetIdx)
 
 	rows, err := r.pool.Query(ctx, listSQL, args...)
 	if err != nil {
@@ -392,6 +436,7 @@ func (r *PostRepository) List(ctx context.Context, p ListParams) ([]*Post, int, 
 			&po.ID, &po.AuthorID, &po.Title, &po.Slug, &po.Excerpt, &po.Status,
 			&po.PublishedAt, &po.CreatedAt, &po.UpdatedAt,
 			&po.AuthorUsername, &po.AuthorDisplayName, &po.AuthorAvatarURL,
+			&po.LikeCount, &po.CommentCount, &po.LikedByMe,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -403,6 +448,7 @@ func (r *PostRepository) List(ctx context.Context, p ListParams) ([]*Post, int, 
 		return nil, 0, err
 	}
 
+	// 避免 N+1：一次撈完所有標籤再於 Go 分組
 	if err := r.attachTags(ctx, posts, ids); err != nil {
 		return nil, 0, err
 	}
