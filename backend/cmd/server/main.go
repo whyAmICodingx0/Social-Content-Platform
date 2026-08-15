@@ -47,8 +47,12 @@ func main() {
 	cookieMgr := &cookies.Manager{Secure: cfg.CookieSecure}
 	auth := &middleware.Auth{Store: sessions, Users: userRepo}
 
+	followRepo := repository.NewFollowRepository(pool)
+	followSvc := &service.FollowService{Follows: followRepo, Users: userRepo}
+	followHandler := &handler.FollowHandler{Svc: followSvc}
+
 	userSvc := &service.UserService{Users: userRepo}
-	userHandler := &handler.UserHandler{Svc: userSvc}
+	userHandler := &handler.UserHandler{Svc: userSvc, Follows: followSvc}
 
 	postRepo := repository.NewPostRepository(pool)
 	postSvc := &service.PostService{Posts: postRepo}
@@ -115,6 +119,11 @@ func main() {
 	v1.POST("/posts/:id/comments", auth.Required(), commentHandler.Create)
 	v1.PATCH("/comments/:id", auth.Required(), commentHandler.Update)
 	v1.DELETE("/comments/:id", auth.Required(), commentHandler.Delete)
+	// Follows（P2-3）
+	v1.PUT("/users/:username/follow", auth.Required(), followHandler.Follow)
+	v1.DELETE("/users/:username/follow", auth.Required(), followHandler.Unfollow)
+	v1.GET("/users/:username/followers", followHandler.ListFollowers)
+	v1.GET("/users/:username/following", followHandler.ListFollowing)
 
 	if web.Available() {
 		if err := web.Register(r); err != nil {

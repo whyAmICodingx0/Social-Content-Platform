@@ -10,6 +10,7 @@ import PostCard from '../components/PostCard.vue'
 import PaginationNav from '../components/PaginationNav.vue'
 import { setTitle } from '../utils/title'
 import LoadingState from '../components/LoadingState.vue'
+import FollowButton from '../components/FollowButton.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -91,6 +92,14 @@ function onLikeUpdate({ id, count, liked }) {
     p.liked_by_me = liked
   }
 }
+
+// 追蹤狀態變化時更新 profile 物件，數字立即反映
+function onFollowUpdate({ following, followerCount }) {
+  if (profile.value) {
+    profile.value.followed_by_me = following
+    profile.value.follower_count = followerCount
+  }
+}
 </script>
 
 <template>
@@ -113,17 +122,34 @@ function onLikeUpdate({ id, count, liked }) {
           <h1 class="profile__name">{{ displayName }}</h1>
           <p class="profile__handle">@{{ profile.username }}</p>
           <p v-if="profile.bio" class="profile__bio">{{ profile.bio }}</p>
-          <p class="profile__meta">
-            {{ formatDate(profile.created_at) }} 加入
-            <template v-if="pagination">
-              · 共 {{ pagination.total }} 篇文章
-            </template>
-          </p>
+
+          <div class="profile__stats">
+            <span class="profile__stat">
+              <strong>{{ profile.follower_count }}</strong> 位追蹤者
+            </span>
+            <span class="profile__stat">
+              追蹤中 <strong>{{ profile.following_count }}</strong>
+            </span>
+            <span v-if="pagination" class="profile__stat">
+              <strong>{{ pagination.total }}</strong> 篇文章
+            </span>
+          </div>
+
+          <p class="profile__meta">{{ formatDate(profile.created_at) }} 加入</p>
         </div>
 
-        <RouterLink v-if="isMe" to="/settings" class="btn btn--ghost profile__edit">
-          編輯個人檔案
-        </RouterLink>
+        <div class="profile__action">
+          <RouterLink v-if="isMe" to="/settings" class="btn btn--ghost">
+            編輯個人檔案
+          </RouterLink>
+          <FollowButton
+            v-else
+            :username="profile.username"
+            :following="profile.followed_by_me"
+            :follower-count="profile.follower_count"
+            @update="onFollowUpdate"
+          />
+        </div>
       </header>
 
       <p v-if="isMe" class="profile__note">
@@ -196,8 +222,22 @@ function onLikeUpdate({ id, count, liked }) {
   color: var(--color-text-muted);
 }
 
-.profile__edit {
+.profile__action {
   flex-shrink: 0;
+}
+
+.profile__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.profile__stat strong {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
 }
 
 .profile__note {
@@ -221,6 +261,9 @@ function onLikeUpdate({ id, count, liked }) {
   .profile {
     flex-direction: column;
     gap: var(--space-3);
+  }
+  .profile__action {
+    width: 100%;
   }
 }
 </style>

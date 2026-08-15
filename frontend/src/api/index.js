@@ -26,6 +26,14 @@ export const postsApi = {
 
 export const usersApi = {
   get: (username) => api.get(`/users/${encodeURIComponent(username)}`),
+
+  // P2-3
+  follow: (username) => api.put(`/users/${encodeURIComponent(username)}/follow`),
+  unfollow: (username) => api.del(`/users/${encodeURIComponent(username)}/follow`),
+  followers: (username, params) =>
+    api.get(`/users/${encodeURIComponent(username)}/followers` + toQuery(params)),
+  following: (username, params) =>
+    api.get(`/users/${encodeURIComponent(username)}/following` + toQuery(params)),
 }
 
 export const tagsApi = {

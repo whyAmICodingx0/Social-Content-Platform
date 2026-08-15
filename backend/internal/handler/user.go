@@ -13,19 +13,14 @@ import (
 )
 
 type UserHandler struct {
-	Svc *service.UserService
+	Svc     *service.UserService
+	Follows *service.FollowService // P2-3：公開個人頁的追蹤資訊
 }
 
-// ---------- PATCH /api/v1/me（spec 6.1） ----------
+// ---------- PATCH /api/v1/me ----------
 
-// patchMeRequest 只定義「可以改」的欄位。
-//
-// ★ 決策 #24 的落實處：username 和 email 故意**不**出現在這個 struct，
-//
-//	所以 BindStrict 的 DisallowUnknownFields 會把它們當 unknown field 擋下並回 400。
-//	一個機制同時處理「未知欄位」和「唯讀欄位」，不需要額外的檢查程式碼。
-//
-// 用 *string 而非 string：才能區分「沒送這個欄位」(nil) 和「送了空字串」("")。
+// patchMeRequest 只定義可以改的欄位。
+// username 與 email 故意不出現 → BindStrict 會當成 unknown field 擋下（決策 #24）。
 type patchMeRequest struct {
 	DisplayName *string `json:"display_name"`
 	Bio         *string `json:"bio"`
@@ -34,7 +29,7 @@ type patchMeRequest struct {
 
 func (h *UserHandler) PatchMe(c *gin.Context) {
 	u, ok := middleware.CurrentUser(c)
-	if !ok { // Required middleware 保證不會發生；防禦性
+	if !ok {
 		api.Fail(c, http.StatusUnauthorized, api.CodeUnauthenticated, "Authentication required")
 		return
 	}
@@ -56,7 +51,6 @@ func (h *UserHandler) PatchMe(c *gin.Context) {
 			api.FailWithFields(c, http.StatusBadRequest, api.CodeValidationError,
 				"Request validation failed", map[string]string{vErr.Field: vErr.Message})
 		case errors.Is(err, repository.ErrNotFound):
-			// session 有效但 user 消失：極罕見（並行刪帳號），視同未認證
 			api.Fail(c, http.StatusUnauthorized, api.CodeUnauthenticated, "Authentication required")
 		default:
 			api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
@@ -65,10 +59,10 @@ func (h *UserHandler) PatchMe(c *gin.Context) {
 		return
 	}
 
-	api.OK(c, meJSON(updated)) // 沿用任務 F 的 Me shape
+	api.OK(c, meJSON(updated))
 }
 
-// ---------- GET /api/v1/users/{username}（spec 6.2） ----------
+// ---------- GET /api/v1/users/:username（optional auth，決策 #47） ----------
 
 func (h *UserHandler) GetPublicProfile(c *gin.Context) {
 	username := c.Param("username")
@@ -88,21 +82,29 @@ func (h *UserHandler) GetPublicProfile(c *gin.Context) {
 		return
 	}
 
-	api.OK(c, publicUserJSON(u))
+	// P2-3：追蹤數字與狀態。viewerID 為 nil 時 followed_by_me 為 false（決策 #48）
+	extras, err := h.Follows.GetProfileExtras(c.Request.Context(), u.ID, viewerID(c))
+	if err != nil {
+		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
+			"Service temporarily unavailable")
+		return
+	}
+
+	api.OK(c, publicUserJSON(u, extras))
 }
 
-// publicUserJSON：User 公開 shape（spec 11.1）。
-// ★ 刻意不含 email 與 updated_at——公開頁不該洩漏聯絡方式。
-//
-//	這是「對外資料模型 ≠ DB 欄位」的具體實踐：repository 撈了完整資料，
-//	由 handler 決定對外露出哪些。
-func publicUserJSON(u *repository.User) gin.H {
+// publicUserJSON：User 公開 shape（spec 11.1 + P2-3 擴充）。
+// 刻意不含 email 與 updated_at。
+func publicUserJSON(u *repository.User, e *service.ProfileExtras) gin.H {
 	return gin.H{
-		"id":           u.ID,
-		"username":     u.Username,
-		"display_name": u.DisplayName,
-		"bio":          u.Bio,
-		"avatar_url":   u.AvatarURL,
-		"created_at":   u.CreatedAt.UTC(),
+		"id":              u.ID,
+		"username":        u.Username,
+		"display_name":    u.DisplayName,
+		"bio":             u.Bio,
+		"avatar_url":      u.AvatarURL,
+		"created_at":      u.CreatedAt.UTC(),
+		"follower_count":  e.FollowerCount,
+		"following_count": e.FollowingCount,
+		"followed_by_me":  e.FollowedByMe,
 	}
 }
