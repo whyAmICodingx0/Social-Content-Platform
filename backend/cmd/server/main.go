@@ -110,6 +110,7 @@ func main() {
 	v1.GET("/users/:username/posts/:slug", auth.Optional(), postHandler.GetBySlug)
 	v1.GET("/posts", auth.Optional(), postHandler.ListPublic)
 	v1.GET("/me/posts", auth.Required(), postHandler.ListMine)
+	v1.GET("/feed", auth.Required(), postHandler.Feed)
 	v1.GET("/users/:username/posts", auth.Optional(), postHandler.ListByUser)
 	v1.GET("/tags", tagHandler.List)
 	v1.PUT("/posts/:id/like", auth.Required(), likeHandler.Like)

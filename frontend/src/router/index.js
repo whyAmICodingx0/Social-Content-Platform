@@ -44,6 +44,12 @@ const routes = [
     meta: { requiresAuth: true, title: '我的文章' },
   },
   {
+    path: '/feed',
+    name: 'feed',
+    component: () => import('../views/FeedView.vue'),
+    meta: { requiresAuth: true, title: '追蹤動態' },
+  },
+  {
     path: '/@:username',
     name: 'profile',
     component: () => import('../views/ProfileView.vue'),

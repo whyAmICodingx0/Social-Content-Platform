@@ -189,6 +189,30 @@ func (h *PostHandler) ListMine(c *gin.Context) {
 	h.respondList(c, q, in)
 }
 
+// GET /api/v1/feed（required auth，決策 #45）
+//
+// 內容：我追蹤的人 + 我自己 的已發布文章。
+// 空時回空陣列，不 fallback 全站文章——那會讓同一端點回傳語意
+// 不同的資料，前端無法分辨。空狀態由前端呈現。
+func (h *PostHandler) Feed(c *gin.Context) {
+	u, ok := middleware.CurrentUser(c)
+	if !ok {
+		api.Fail(c, http.StatusUnauthorized, api.CodeUnauthenticated, "Authentication required")
+		return
+	}
+	q := api.ParsePageQuery(c)
+
+	h.respondList(c, q, service.ListPostsInput{
+		FeedFor:          &u.ID,
+		OnlyPublished:    true,
+		OrderByPublished: true,
+		Asc:              q.Asc(),
+		Limit:            q.Limit,
+		Offset:           q.Offset(),
+		ViewerID:         &u.ID, // 自己的 feed，liked_by_me 一定是自己的視角
+	})
+}
+
 func (h *PostHandler) respondList(c *gin.Context, q api.PageQuery, in service.ListPostsInput) {
 	posts, total, err := h.Svc.List(c.Request.Context(), in)
 	if err != nil {

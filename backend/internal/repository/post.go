@@ -348,6 +348,9 @@ type ListParams struct {
 	Limit            int
 	Offset           int
 	ViewerID         *string // nil = 匿名（決策 #49）
+	// FeedFor 非 nil 時啟用 feed 篩選：
+	// 只回「此人追蹤的作者 + 此人自己」的文章（決策 #45）
+	FeedFor *string
 }
 
 // List 回傳文章清單與符合條件的總筆數。
@@ -376,6 +379,19 @@ func (r *PostRepository) List(ctx context.Context, p ListParams) ([]*Post, int, 
 			JOIN tags t ON t.id = pt.tag_id
 			WHERE pt.post_id = p.id AND t.slug = $%d
 		)`, *p.Tag)
+	}
+	if p.FeedFor != nil {
+		// Feed（pull 模型）：我追蹤的人 + 我自己。
+		//
+		// 用 IN (子查詢) 而非 JOIN follows：JOIN 的話「我自己的文章」
+		// 需要額外 UNION 或 OR 才能包含，且可能產生重複列。
+		// 子查詢語意清楚，也不影響筆數。
+		add(`(
+			p.author_id = $%[1]d
+			OR p.author_id IN (
+				SELECT f.followee_id FROM follows f WHERE f.follower_id = $%[1]d
+			)
+		)`, *p.FeedFor)
 	}
 
 	whereSQL := "WHERE " + strings.Join(where, " AND ")

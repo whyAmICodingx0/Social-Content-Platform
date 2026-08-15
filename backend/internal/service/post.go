@@ -203,6 +203,7 @@ type ListPostsInput struct {
 	Limit            int
 	Offset           int
 	ViewerID         *string
+	FeedFor          *string
 }
 
 func (s *PostService) List(ctx context.Context, in ListPostsInput) ([]*repository.Post, int, error) {
@@ -217,5 +218,6 @@ func (s *PostService) List(ctx context.Context, in ListPostsInput) ([]*repositor
 		Limit:            in.Limit,
 		Offset:           in.Offset,
 		ViewerID:         in.ViewerID,
+		FeedFor:          in.FeedFor,
 	})
 }

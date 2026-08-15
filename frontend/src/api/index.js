@@ -22,6 +22,7 @@ export const postsApi = {
 
   like: (id) => api.put(`/posts/${id}/like`),
   unlike: (id) => api.del(`/posts/${id}/like`),
+  feed: (params) => api.get('/feed' + toQuery(params)),
 }
 
 export const usersApi = {

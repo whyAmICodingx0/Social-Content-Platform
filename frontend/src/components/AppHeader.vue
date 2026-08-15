@@ -26,6 +26,7 @@ async function handleLogout() {
         <!-- ready 之前不顯示，避免閃過錯誤狀態 -->
         <template v-if="auth.ready">
           <template v-if="auth.isAuthenticated">
+            <RouterLink to="/feed" class="header__link">追蹤動態</RouterLink>
             <RouterLink to="/new" class="header__link">寫文章</RouterLink>
             <RouterLink to="/me/posts" class="header__link">我的文章</RouterLink>
             <RouterLink :to="`/@${auth.user.username}`" class="header__user">
