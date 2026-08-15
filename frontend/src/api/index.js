@@ -32,6 +32,16 @@ export const tagsApi = {
   list: (params) => api.get('/tags' + toQuery(params)),
 }
 
+export const commentsApi = {
+  list: (postId, params) =>
+    api.get(`/posts/${postId}/comments` + toQuery(params)),
+  create: (postId, content) =>
+    api.post(`/posts/${postId}/comments`, { content }),
+  update: (commentId, content) =>
+    api.patch(`/comments/${commentId}`, { content }),
+  remove: (commentId) => api.del(`/comments/${commentId}`),
+}
+
 function toQuery(params) {
   if (!params) return ''
   const usable = Object.entries(params).filter(

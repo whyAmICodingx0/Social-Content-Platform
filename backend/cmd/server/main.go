@@ -58,6 +58,10 @@ func main() {
 	likeSvc := &service.LikeService{Likes: likeRepo}
 	likeHandler := &handler.LikeHandler{Svc: likeSvc}
 
+	commentRepo := repository.NewCommentRepository(pool)
+	commentSvc := &service.CommentService{Comments: commentRepo}
+	commentHandler := &handler.CommentHandler{Svc: commentSvc}
+
 	tagRepo := repository.NewTagRepository(pool)
 	tagSvc := &service.TagService{Tags: tagRepo}
 	tagHandler := &handler.TagHandler{Svc: tagSvc}
@@ -106,6 +110,11 @@ func main() {
 	v1.GET("/tags", tagHandler.List)
 	v1.PUT("/posts/:id/like", auth.Required(), likeHandler.Like)
 	v1.DELETE("/posts/:id/like", auth.Required(), likeHandler.Unlike)
+	// Comments（P2-2）
+	v1.GET("/posts/:id/comments", commentHandler.List) // 純公開
+	v1.POST("/posts/:id/comments", auth.Required(), commentHandler.Create)
+	v1.PATCH("/comments/:id", auth.Required(), commentHandler.Update)
+	v1.DELETE("/comments/:id", auth.Required(), commentHandler.Delete)
 
 	if web.Available() {
 		if err := web.Register(r); err != nil {

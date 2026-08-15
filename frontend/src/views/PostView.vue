@@ -10,6 +10,7 @@ import { formatDate } from '../utils/format'
 import { setTitle } from '../utils/title'
 import LoadingState from '../components/LoadingState.vue'
 import LikeButton from '../components/LikeButton.vue'
+import CommentSection from '../components/CommentSection.vue'
 
 const route = useRoute()
 
@@ -94,6 +95,12 @@ function onLikeUpdate({ count, liked }) {
   }
 }
 
+// 留言區的筆數變動時，同步文章物件上的 comment_count，
+// 讓上方的「N 則留言」不會過時
+function onCommentCountChange(n) {
+  if (post.value) post.value.comment_count = n
+}
+
 watch(() => [route.params.username, route.params.slug], load, { immediate: true })
 </script>
 
@@ -154,6 +161,16 @@ watch(() => [route.params.username, route.params.slug], load, { immediate: true 
         絕不可改成直接綁未消毒的字串。
       -->
       <div class="prose" v-html="contentHtml"></div>
+
+      <!-- 草稿不顯示留言區（後端一律 404，決策 #43） -->
+      <CommentSection
+        v-if="post.status === 'published'"
+        :post-id="post.id"
+        :post-author-username="post.author.username"
+        :initial-count="post.comment_count"
+        @count-change="onCommentCountChange"
+      />
+
     </article>
   </div>
 </template>
