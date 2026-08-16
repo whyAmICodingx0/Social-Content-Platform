@@ -51,6 +51,17 @@ export const commentsApi = {
   remove: (commentId) => api.del(`/comments/${commentId}`),
 }
 
+export const conversationsApi = {
+  // find-or-create，冪等 —— 開啟對話頁時呼叫
+  findOrCreate: (username) => api.post('/conversations', { username }),
+
+  sendMessage: (conversationId, clientMessageId, content) =>
+    api.post(`/conversations/${conversationId}/messages`, {
+      client_message_id: clientMessageId,
+      content,
+    }),
+}
+
 function toQuery(params) {
   if (!params) return ''
   const usable = Object.entries(params).filter(

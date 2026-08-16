@@ -59,6 +59,24 @@ func main() {
 		Validator: &ws.RedisSessionValidator{Store: sessions},
 	}
 
+	conversationRepo := repository.NewConversationRepository(pool)
+	messageRepo := repository.NewMessageRepository(pool)
+
+	conversationSvc := &service.ConversationService{
+		Conversations: conversationRepo,
+		Users:         userRepo,
+	}
+	messageSvc := &service.MessageService{
+		Messages:      messageRepo,
+		Conversations: conversationRepo,
+	}
+
+	conversationHandler := &handler.ConversationHandler{Svc: conversationSvc}
+	messageHandler := &handler.MessageHandler{
+		Svc:      messageSvc,
+		Notifier: &ws.Notifier{Hub: hub},
+	}
+
 	userSvc := &service.UserService{Users: userRepo}
 	userHandler := &handler.UserHandler{Svc: userSvc, Follows: followSvc}
 
@@ -136,6 +154,9 @@ func main() {
 	v1.GET("/users/:username/following", followHandler.ListFollowing)
 	// WebSocket（P3-1）
 	v1.GET("/ws", auth.Required(), wsHandler.Serve)
+	// Messaging（P3-2）
+	v1.POST("/conversations", auth.Required(), conversationHandler.Create)
+	v1.POST("/conversations/:id/messages", auth.Required(), messageHandler.Create)
 
 	// Dev only（P3-1 驗收用，正式環境不註冊）
 	if cfg.IsDev() {

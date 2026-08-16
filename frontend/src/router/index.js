@@ -61,6 +61,14 @@ const routes = [
     meta: { requiresAuth: true, title: '個人檔案設定' },
   },
   {
+    // 用 username 而非 conversation id：重新整理時可直接
+    // 重用冪等的 POST /conversations 取回 id 與 other_user
+    path: '/messages/@:username',
+    name: 'messages',
+    component: () => import('../views/MessagesView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     component: () => import('../views/NotFoundView.vue'),

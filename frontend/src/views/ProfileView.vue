@@ -142,13 +142,21 @@ function onFollowUpdate({ following, followerCount }) {
           <RouterLink v-if="isMe" to="/settings" class="btn btn--ghost">
             編輯個人檔案
           </RouterLink>
-          <FollowButton
-            v-else
-            :username="profile.username"
-            :following="profile.followed_by_me"
-            :follower-count="profile.follower_count"
-            @update="onFollowUpdate"
-          />
+          <template v-else>
+            <RouterLink
+              v-if="auth.isAuthenticated"
+              :to="`/messages/@${profile.username}`"
+              class="btn btn--ghost"
+            >
+              傳訊息
+            </RouterLink>
+            <FollowButton
+              :username="profile.username"
+              :following="profile.followed_by_me"
+              :follower-count="profile.follower_count"
+              @update="onFollowUpdate"
+            />
+          </template>
         </div>
       </header>
 
@@ -224,6 +232,10 @@ function onFollowUpdate({ following, followerCount }) {
 
 .profile__action {
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
 }
 
 .profile__stats {

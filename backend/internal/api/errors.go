@@ -14,4 +14,7 @@ const (
 	CodeUnsupportedMediaType = "UNSUPPORTED_MEDIA_TYPE"
 	CodeInternalError        = "INTERNAL_ERROR"
 	CodeServiceUnavailable   = "SERVICE_UNAVAILABLE"
+	// Phase 3
+	CodeCannotMessageSelf = "CANNOT_MESSAGE_SELF"
+	CodeInvalidCursor     = "INVALID_CURSOR" // P3-3 使用，一併定義避免重複改檔
 )
