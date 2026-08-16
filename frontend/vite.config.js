@@ -6,14 +6,23 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': { target: 'http://localhost:8080', changeOrigin: false },
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: false,
+        // ⚠️ 沒有這行，WebSocket 握手會直接 404，
+        // 而且錯誤訊息完全看不出原因
+        ws: true,
+      },
     },
   },
-  // npm run preview 用來檢視打包後的成品，同樣需要 proxy 才能連後端
   preview: {
     port: 4173,
     proxy: {
-      '/api': { target: 'http://localhost:8080', changeOrigin: false },
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: false,
+        ws: true,
+      },
     },
   },
 })

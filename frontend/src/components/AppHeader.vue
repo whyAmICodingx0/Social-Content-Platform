@@ -2,11 +2,13 @@
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { authApi } from '../api'
+import ConnectionStatus from './ConnectionStatus.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
 
 function login() {
+  // OAuth 是整頁導向，不是 fetch
   window.location.href = authApi.loginUrl
 }
 
@@ -26,6 +28,7 @@ async function handleLogout() {
         <!-- ready 之前不顯示，避免閃過錯誤狀態 -->
         <template v-if="auth.ready">
           <template v-if="auth.isAuthenticated">
+            <ConnectionStatus />
             <RouterLink to="/feed" class="header__link">追蹤動態</RouterLink>
             <RouterLink to="/new" class="header__link">寫文章</RouterLink>
             <RouterLink to="/me/posts" class="header__link">我的文章</RouterLink>
@@ -34,7 +37,9 @@ async function handleLogout() {
             </RouterLink>
             <button class="btn btn--ghost" @click="handleLogout">登出</button>
           </template>
-          <button v-else class="btn btn--primary" @click="login">使用 Google 登入</button>
+          <button v-else class="btn btn--primary" @click="login">
+            使用 Google 登入
+          </button>
         </template>
       </nav>
     </div>
@@ -67,11 +72,6 @@ async function handleLogout() {
   gap: var(--space-4);
 }
 
-.header__user {
-  font-size: var(--text-sm);
-  color: var(--color-text-muted);
-}
-
 .header__link {
   font-size: var(--text-sm);
   color: var(--color-text-muted);
@@ -85,6 +85,11 @@ async function handleLogout() {
 .header__link.router-link-active {
   color: var(--color-text);
   font-weight: 600;
+}
+
+.header__user {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
 }
 
 .header__user:hover {
@@ -102,6 +107,7 @@ async function handleLogout() {
 
   .header__nav {
     width: 100%;
+    flex-wrap: wrap;
     gap: var(--space-3);
     font-size: var(--text-sm);
   }

@@ -16,6 +16,7 @@ import (
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/service"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/store"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/web"
+	"github.com/whyAmICodingx0/Social-Content-Platform/internal/ws"
 )
 
 func main() {
@@ -51,6 +52,13 @@ func main() {
 	followSvc := &service.FollowService{Follows: followRepo, Users: userRepo}
 	followHandler := &handler.FollowHandler{Svc: followSvc}
 
+	hub := ws.NewHub()
+	wsHandler := &handler.WSHandler{
+		Hub:       hub,
+		Upgrader:  ws.NewUpgrader(cfg.FrontendOrigins),
+		Validator: &ws.RedisSessionValidator{Store: sessions},
+	}
+
 	userSvc := &service.UserService{Users: userRepo}
 	userHandler := &handler.UserHandler{Svc: userSvc, Follows: followSvc}
 
@@ -79,6 +87,7 @@ func main() {
 		Pendings: pendings,
 		Cookies:  cookieMgr,
 		Cfg:      cfg,
+		Hub:      hub, // P3-1：登出時關閉同 sid 的 WS 連線（決策 #77）
 	}
 	healthHandler := handler.NewHealthHandler(pool, rdb)
 
@@ -125,6 +134,13 @@ func main() {
 	v1.DELETE("/users/:username/follow", auth.Required(), followHandler.Unfollow)
 	v1.GET("/users/:username/followers", followHandler.ListFollowers)
 	v1.GET("/users/:username/following", followHandler.ListFollowing)
+	// WebSocket（P3-1）
+	v1.GET("/ws", auth.Required(), wsHandler.Serve)
+
+	// Dev only（P3-1 驗收用，正式環境不註冊）
+	if cfg.IsDev() {
+		v1.GET("/dev/ws-stats", auth.Required(), wsHandler.Stats)
+	}
 
 	if web.Available() {
 		if err := web.Register(r); err != nil {

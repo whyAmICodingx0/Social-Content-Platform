@@ -15,6 +15,7 @@ import (
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/repository"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/service"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/store"
+	"github.com/whyAmICodingx0/Social-Content-Platform/internal/ws"
 )
 
 type AuthHandler struct {
@@ -25,6 +26,7 @@ type AuthHandler struct {
 	Pendings *store.PendingSignupStore
 	Cookies  *cookies.Manager
 	Cfg      *config.Config
+	Hub      *ws.Hub // P3-1：登出時加速關閉同 sid 的連線（決策 #77）
 }
 
 // ---------- GET /api/v1/auth/google/login(spec 5.1) ----------
@@ -219,16 +221,26 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 	api.Created(c, meJSON(u)) // 全新帳號 → 201
 }
 
-// ---------- POST /api/v1/auth/logout(spec 4.10 / 5.4,冪等) ----------
+// ---------- POST /api/v1/auth/logout（spec 4.10 / 5.4，冪等） ----------
 
 func (h *AuthHandler) Logout(c *gin.Context) {
 	ctx := c.Request.Context()
+
 	if sid, err := c.Cookie(cookies.NameSID); err == nil && sid != "" {
 		_ = h.Sessions.Delete(ctx, sid) // Redis 掛掉也不影響回應
+
+		// 加速撤銷：關閉此 session 建立的 WS 連線（決策 #77）。
+		// 這是最佳化而非安全保障 —— 兜底是連線期間的 pong 重驗。
+		// CloseBySID 冪等，找不到連線不影響 logout 的回應。
+		if h.Hub != nil {
+			h.Hub.CloseBySID(sid)
+		}
 	}
+
 	if token, err := c.Cookie(cookies.NamePendingSID); err == nil && token != "" {
 		_ = h.Pendings.Delete(ctx, token)
 	}
+
 	h.Cookies.ClearSession(c)
 	h.Cookies.ClearPendingSignup(c)
 	api.NoContent(c)
