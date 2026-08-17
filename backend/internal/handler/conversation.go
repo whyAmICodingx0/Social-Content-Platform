@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -57,6 +58,52 @@ func (h *ConversationHandler) Create(c *gin.Context) {
 	api.OK(c, conversationJSON(conv))
 }
 
+// ---------- GET /api/v1/conversations ----------
+
+func (h *ConversationHandler) List(c *gin.Context) {
+	u, ok := middleware.CurrentUser(c)
+	if !ok {
+		api.Fail(c, http.StatusUnauthorized, api.CodeUnauthenticated, "Authentication required")
+		return
+	}
+
+	q := api.ParsePageQuery(c)
+
+	items, total, err := h.Svc.List(c.Request.Context(), u.ID, q.Limit, q.Offset())
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+
+	out := make([]gin.H, 0, len(items))
+	for _, it := range items {
+		out = append(out, conversationListJSON(it, u.ID))
+	}
+	api.OKList(c, out, api.NewPagination(q, total))
+}
+
+// conversationListJSON：列表用的 Conversation shape。
+//
+// last_message.is_mine 讓前端不必自己比對 username 就能顯示「你：...」前綴。
+func conversationListJSON(it *repository.ConversationListItem, viewerID string) gin.H {
+	return gin.H{
+		"id": it.ID,
+		"other_user": gin.H{
+			"username":     it.OtherUsername,
+			"display_name": it.OtherDisplayName,
+			"avatar_url":   it.OtherAvatarURL,
+		},
+		"last_message": gin.H{
+			"id":         it.LastMessageID,
+			"content":    it.LastMessageContent,
+			"is_mine":    it.LastMessageSenderID == viewerID,
+			"created_at": it.LastMessageCreatedAt.UTC(),
+		},
+		"unread_count": it.UnreadCount,
+		"created_at":   it.CreatedAt.UTC(),
+	}
+}
+
 func (h *ConversationHandler) fail(c *gin.Context, err error) {
 	var vErr *service.ValidationError
 	switch {
@@ -70,6 +117,7 @@ func (h *ConversationHandler) fail(c *gin.Context, err error) {
 		// 非參與者、對話不存在、對方已軟刪，一律 404（決策 #73）
 		api.Fail(c, http.StatusNotFound, api.CodeNotFound, "not found")
 	default:
+		log.Printf("handler: unexpected error: %v", err)
 		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
 			"Service temporarily unavailable")
 	}

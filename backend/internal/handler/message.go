@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -61,12 +62,51 @@ func (h *MessageHandler) Create(c *gin.Context) {
 	api.Created(c, payload)
 }
 
+// ---------- GET /api/v1/conversations/:id/messages ----------
+//
+// cursor（keyset）分頁，決策 #67。回應一律以 (created_at, id) 遞增排序。
+func (h *MessageHandler) List(c *gin.Context) {
+	u, ok := middleware.CurrentUser(c)
+	if !ok {
+		api.Fail(c, http.StatusUnauthorized, api.CodeUnauthenticated, "Authentication required")
+		return
+	}
+
+	limit, _ := strconv.Atoi(c.Query("limit")) // 非數字得到 0，service 會套預設值
+
+	msgs, hasMore, err := h.Svc.ListMessages(c.Request.Context(), service.ListMessagesInput{
+		ConversationID: c.Param("id"),
+		ViewerID:       u.ID,
+		Before:         c.Query("before"),
+		After:          c.Query("after"),
+		Limit:          limit,
+	})
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+
+	items := make([]gin.H, 0, len(msgs))
+	for _, m := range msgs {
+		items = append(items, messageJSON(m))
+	}
+
+	// cursor 分頁不回 total / page —— 那是 offset 分頁的概念
+	c.JSON(http.StatusOK, gin.H{
+		"data":     items,
+		"has_more": hasMore,
+	})
+}
+
 func (h *MessageHandler) fail(c *gin.Context, err error) {
 	var vErr *service.ValidationError
 	switch {
 	case errors.As(err, &vErr):
 		api.FailWithFields(c, http.StatusBadRequest, api.CodeValidationError,
 			"Request validation failed", map[string]string{vErr.Field: vErr.Message})
+	case errors.Is(err, service.ErrInvalidCursor):
+		api.Fail(c, http.StatusBadRequest, api.CodeInvalidCursor,
+			"cursor does not belong to this conversation")
 	case errors.Is(err, repository.ErrNotFound):
 		// 對話不存在 / 非參與者 / 對方已軟刪，一律 404（決策 #73）
 		api.Fail(c, http.StatusNotFound, api.CodeNotFound, "not found")

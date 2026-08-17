@@ -10,6 +10,7 @@ import { setTitle } from '../utils/title'
 import UserAvatar from '../components/UserAvatar.vue'
 import LoadingState from '../components/LoadingState.vue'
 import ConnectionStatus from '../components/ConnectionStatus.vue'
+import { fetchMessagesAfter } from '../utils/messages'
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -25,6 +26,10 @@ const sending = ref(false)
 const sendError = ref(null)
 
 const listEl = ref(null)
+const loadingOlder = ref(false)
+const hasOlder = ref(false)
+let catchingUp = false
+let unsubscribeOpen = null
 let unsubscribe = null
 
 const MAX = 2000
@@ -67,6 +72,88 @@ function upsertMessage(msg) {
 
   messages.value.push({ ...msg, pending: false, failed: false })
   scrollToBottom()
+}
+
+/**
+ * 首次載入：取最新的一批訊息。
+ * 回應已是遞增排序（最舊在前），直接使用。
+ */
+async function loadInitialMessages() {
+  const res = await conversationsApi.messages(conversation.value.id, { limit: 30 })
+  messages.value = res.data.map((m) => ({ ...m, pending: false, failed: false }))
+  hasOlder.value = res.has_more
+  scrollToBottom()
+}
+
+/**
+ * 往上捲載入更舊的訊息。
+ *
+ * 捲動位置的處理：插入內容到列表最前面會讓可視區域「往下跳」，
+ * 所以先記錄 scrollHeight，插入後補回差值，讓使用者停在原本看的位置。
+ */
+async function loadOlder() {
+  if (loadingOlder.value || !hasOlder.value || messages.value.length === 0) return
+
+  loadingOlder.value = true
+  const el = listEl.value
+  const prevHeight = el ? el.scrollHeight : 0
+
+  try {
+    const oldest = messages.value.find((m) => !m.pending)
+    if (!oldest) return
+
+    const res = await conversationsApi.messages(conversation.value.id, {
+      before: oldest.id,
+      limit: 30,
+    })
+
+    const older = res.data.map((m) => ({ ...m, pending: false, failed: false }))
+    messages.value = [...older, ...messages.value]
+    hasOlder.value = res.has_more
+
+    await nextTick()
+    if (el) el.scrollTop = el.scrollHeight - prevHeight
+  } catch (err) {
+    sendError.value = '載入歷史訊息失敗。'
+  } finally {
+    loadingOlder.value = false
+  }
+}
+
+/**
+ * 重連後補齊斷線期間漏掉的訊息（決策 #68）。
+ *
+ * WS 不保證送達（決策 #62），PostgreSQL 才是權威 ——
+ * 所以每次連線建立（含首次與重連）都要用 ?after= 補一次。
+ */
+async function catchUp() {
+  if (catchingUp || !conversation.value) return
+
+  const known = [...messages.value].reverse().find((m) => !m.pending)
+  if (!known) {
+    // 本地一則都沒有（例如首次載入失敗）→ 直接重載
+    try {
+      await loadInitialMessages()
+    } catch {
+      /* 靜默：連線指示燈已經反映狀態 */
+    }
+    return
+  }
+
+  catchingUp = true
+  try {
+    const missed = await fetchMessagesAfter(conversation.value.id, known.id)
+    missed.forEach(upsertMessage)
+  } catch {
+    /* 補抓失敗不打斷使用；下次重連會再試一次 */
+  } finally {
+    catchingUp = false
+  }
+}
+
+// 捲到頂端附近就載入更舊的
+function onScroll() {
+  if (listEl.value && listEl.value.scrollTop < 80) loadOlder()
 }
 
 async function load() {
@@ -180,17 +267,34 @@ function formatTime(iso) {
 
 onMounted(async () => {
   await load()
+  if (!conversation.value) return
+
+  try {
+    await loadInitialMessages()
+  } catch (err) {
+    loadError.value = '載入歷史訊息失敗。'
+    return
+  }
 
   // 訂閱即時訊息。只處理屬於本對話的事件 ——
-  // 同一條 WS 連線會收到所有對話的訊息（P3-3 的對話列表會用到其餘的）。
+  // 同一條 WS 連線會收到所有對話的訊息。
   unsubscribe = ws.on('message.created', (data) => {
     if (!conversation.value || data.conversation_id !== conversation.value.id) return
     upsertMessage(data)
   })
+
+  // ⚠️ 每次連線建立（含重連）都補抓一次。
+  // 只在 onMounted 補一次是不夠的 —— 斷線期間的訊息就是在
+  // 「重連的那一刻」才需要補。
+  unsubscribeOpen = ws.on('open', catchUp)
+
+  // 若進頁時 WS 已經是連線狀態（不會再觸發 open），主動補一次
+  if (ws.status === 'open') catchUp()
 })
 
 onUnmounted(() => {
   if (unsubscribe) unsubscribe()
+  if (unsubscribeOpen) unsubscribeOpen()
 })
 </script>
 
@@ -216,12 +320,11 @@ onUnmounted(() => {
         <ConnectionStatus />
       </header>
 
-      <!-- P3-3 才會載入歷史訊息；本步只顯示本次連線期間的訊息 -->
-      <p class="chat__notice">
-        目前只顯示這次開啟頁面之後的訊息，歷史訊息功能開發中。
-      </p>
+      <div ref="listEl" class="chat__list" @scroll="onScroll">
+        <p v-if="loadingOlder" class="chat__older">載入更舊的訊息…</p>
+        <p v-else-if="hasOlder" class="chat__older">往上捲以載入更舊的訊息</p>
+        <p v-else-if="messages.length > 0" class="chat__older">已是最開始</p>
 
-      <div ref="listEl" class="chat__list">
         <p v-if="messages.length === 0" class="state">
           還沒有訊息，說點什麼吧。
         </p>
@@ -301,13 +404,6 @@ onUnmounted(() => {
 
 .chat__peer:hover .chat__peer-name {
   color: var(--color-accent);
-}
-
-.chat__notice {
-  padding: var(--space-2) 0;
-  font-size: var(--text-sm);
-  color: var(--color-text-muted);
-  text-align: center;
 }
 
 .chat__list {
@@ -417,6 +513,13 @@ onUnmounted(() => {
   padding-top: var(--space-2);
   font-size: var(--text-sm);
   color: var(--color-danger);
+}
+
+.chat__older {
+  padding: var(--space-2) 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  text-align: center;
 }
 
 .btn:disabled {

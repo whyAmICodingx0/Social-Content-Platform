@@ -119,3 +119,108 @@ func (r *ConversationRepository) GetForUser(ctx context.Context, conversationID,
 	}
 	return &c, nil
 }
+
+// ConversationListItem 是對話列表的一筆。
+type ConversationListItem struct {
+	Conversation
+
+	// 最後一則訊息（列表一定有訊息，故必然非空）
+	LastMessageID        string
+	LastMessageContent   string
+	LastMessageSenderID  string
+	LastMessageCreatedAt time.Time
+
+	UnreadCount int
+}
+
+// ListForUser 取得某人的對話列表（決策 #74）。
+//
+// 規則：
+//   - 沒有任何訊息的對話不出現（LATERAL 結果為 NULL 就被 JOIN 濾掉）
+//   - 對方已軟刪的對話排除
+//   - 依最後一則訊息時間由新到舊，id 作 tie-break（決策 #27）
+//   - offset 分頁（只有 messages 用 cursor）
+//
+// 【未讀數的 NULL 陷阱】從未讀過的對話沒有 conversation_reads 那一列，
+// LEFT JOIN 出來是 NULL，而 `m.created_at > NULL` 的結果是 NULL 不是 true ——
+// 未讀數會全部算成 0。必須用 COALESCE(r.last_read_at, '-infinity'::timestamptz)：
+// 任何時間都大於 -infinity，所以「從未讀過」= 全部他人訊息皆未讀。
+//
+// 未讀數不計自己傳的訊息（sender_id <> viewer）。
+func (r *ConversationRepository) ListForUser(
+	ctx context.Context, viewerID string, limit, offset int,
+) ([]*ConversationListItem, int, error) {
+	// FROM 與 WHERE 拆成兩段：list 查詢需要在兩者之間插入未讀數的 LATERAL。
+	// SQL 的 JOIN 必須全部出現在 WHERE 之前，合成一個常數就沒地方插了。
+	const fromClause = `
+		FROM conversations c
+		JOIN users u ON u.id = (
+		    CASE WHEN c.user_low_id = $1 THEN c.user_high_id ELSE c.user_low_id END
+		) AND u.deleted_at IS NULL
+		-- 取最後一則訊息。JOIN LATERAL（非 LEFT）→ 沒有訊息的對話直接被濾掉
+		JOIN LATERAL (
+		    SELECT m.id, m.content, m.sender_id, m.created_at
+		    FROM messages m
+		    WHERE m.conversation_id = c.id
+		    ORDER BY m.created_at DESC, m.id DESC
+		    LIMIT 1
+		) lm ON true`
+
+	// OR 加上括號：目前沒有其他 WHERE 條件所以不影響，
+	// 但日後若加上 AND，沒括號會讓整個條件靜默失效。
+	const whereClause = `
+		WHERE (c.user_low_id = $1 OR c.user_high_id = $1)`
+
+	var total int
+	if err := r.pool.QueryRow(ctx, `SELECT count(*) `+fromClause+whereClause, viewerID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	if total == 0 {
+		return []*ConversationListItem{}, 0, nil
+	}
+
+	const listSQL = `
+		SELECT c.id, c.user_low_id, c.user_high_id, c.created_at,
+		       u.id, u.username, u.display_name, u.avatar_url,
+		       lm.id, lm.content, lm.sender_id, lm.created_at,
+		       COALESCE(uc.cnt, 0)
+		` + fromClause + `
+		-- 未讀數：他人傳的、且晚於我的已讀位置。
+		-- COALESCE(..., '-infinity') 處理「從未讀過」的情況：
+		-- 沒有 conversation_reads 那一列時 LEFT JOIN 出來是 NULL，
+		-- 而 m2.created_at > NULL 的結果是 NULL 不是 true，會全部算成 0。
+		LEFT JOIN LATERAL (
+		    SELECT count(*) AS cnt
+		    FROM messages m2
+		    LEFT JOIN conversation_reads r
+		           ON r.conversation_id = c.id AND r.user_id = $1
+		    WHERE m2.conversation_id = c.id
+		      AND m2.sender_id <> $1
+		      AND m2.created_at > COALESCE(r.last_read_at, '-infinity'::timestamptz)
+		) uc ON true
+		` + whereClause + `
+		ORDER BY lm.created_at DESC, c.id DESC
+		LIMIT $2 OFFSET $3`
+
+	rows, err := r.pool.Query(ctx, listSQL, viewerID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := []*ConversationListItem{}
+	for rows.Next() {
+		var it ConversationListItem
+		if err := rows.Scan(
+			&it.ID, &it.UserLowID, &it.UserHighID, &it.CreatedAt,
+			&it.OtherUserID, &it.OtherUsername, &it.OtherDisplayName, &it.OtherAvatarURL,
+			&it.LastMessageID, &it.LastMessageContent,
+			&it.LastMessageSenderID, &it.LastMessageCreatedAt,
+			&it.UnreadCount,
+		); err != nil {
+			return nil, 0, err
+		}
+		items = append(items, &it)
+	}
+	return items, total, rows.Err()
+}

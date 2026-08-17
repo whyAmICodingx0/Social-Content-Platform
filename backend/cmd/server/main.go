@@ -157,6 +157,8 @@ func main() {
 	// Messaging（P3-2）
 	v1.POST("/conversations", auth.Required(), conversationHandler.Create)
 	v1.POST("/conversations/:id/messages", auth.Required(), messageHandler.Create)
+	v1.GET("/conversations", auth.Required(), conversationHandler.List)
+	v1.GET("/conversations/:id/messages", auth.Required(), messageHandler.List)
 
 	// Dev only（P3-1 驗收用，正式環境不註冊）
 	if cfg.IsDev() {

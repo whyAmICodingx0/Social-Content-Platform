@@ -91,3 +91,76 @@ func validateMessageContent(raw string) (string, error) {
 	}
 	return content, nil
 }
+
+// 分頁參數（決策 #67）
+const (
+	defaultMessageLimit = 30
+	maxMessageLimit     = 100
+)
+
+// ErrInvalidCursor：before / after 的錨點不存在或不屬於本對話。
+var ErrInvalidCursor = errors.New("service: invalid cursor")
+
+type ListMessagesInput struct {
+	ConversationID string
+	ViewerID       string
+	Before         string
+	After          string
+	Limit          int
+}
+
+// ListMessages 取得歷史訊息（cursor 分頁）。
+func (s *MessageService) ListMessages(
+	ctx context.Context, in ListMessagesInput,
+) ([]*repository.Message, bool, error) {
+	// 1. 權限：非參與者一律 ErrNotFound（決策 #73）
+	if _, err := s.Conversations.GetForUser(ctx, in.ConversationID, in.ViewerID); err != nil {
+		return nil, false, err
+	}
+
+	// 2. before 與 after 互斥
+	if in.Before != "" && in.After != "" {
+		return nil, false, &ValidationError{
+			Field: "cursor", Message: "before and after are mutually exclusive",
+		}
+	}
+
+	// 3. limit 夾住（沿用決策 #26 的寬容處理：不合法就夾回範圍，不回 400）
+	limit := in.Limit
+	if limit <= 0 {
+		limit = defaultMessageLimit
+	}
+	if limit > maxMessageLimit {
+		limit = maxMessageLimit
+	}
+
+	// 4. cursor 必須是合法 UUID 且屬於本對話。
+	//    先擋格式，避免把非法字串送進 SQL 觸發 uuid 語法錯誤。
+	cur := repository.MessageCursor{Limit: limit}
+
+	if in.Before != "" {
+		if err := s.validateCursor(ctx, in.ConversationID, in.Before); err != nil {
+			return nil, false, err
+		}
+		cur.Before = in.Before
+	}
+	if in.After != "" {
+		if err := s.validateCursor(ctx, in.ConversationID, in.After); err != nil {
+			return nil, false, err
+		}
+		cur.After = in.After
+	}
+
+	return s.Messages.ListMessages(ctx, in.ConversationID, cur)
+}
+
+func (s *MessageService) validateCursor(ctx context.Context, conversationID, messageID string) error {
+	if _, err := uuid.Parse(messageID); err != nil {
+		return ErrInvalidCursor
+	}
+	err := s.Messages.CursorExists(ctx, conversationID, messageID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return ErrInvalidCursor
+	}
+	return err
+}

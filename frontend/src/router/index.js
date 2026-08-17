@@ -69,6 +69,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/messages',
+    name: 'conversations',
+    component: () => import('../views/ConversationsView.vue'),
+    meta: { requiresAuth: true, title: '訊息' },
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     component: () => import('../views/NotFoundView.vue'),

@@ -90,3 +90,10 @@ func orderUserIDs(a, b string) (low, high string, err error) {
 	}
 	return b, a, nil
 }
+
+// List 取得我的對話列表。
+func (s *ConversationService) List(
+	ctx context.Context, viewerID string, limit, offset int,
+) ([]*repository.ConversationListItem, int, error) {
+	return s.Conversations.ListForUser(ctx, viewerID, limit, offset)
+}

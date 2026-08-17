@@ -55,6 +55,12 @@ export const conversationsApi = {
   // find-or-create，冪等 —— 開啟對話頁時呼叫
   findOrCreate: (username) => api.post('/conversations', { username }),
 
+  list: (params) => api.get('/conversations' + toQuery(params)),
+
+  // cursor 分頁：before / after 互斥（P3-3）
+  messages: (conversationId, params) =>
+    api.get(`/conversations/${conversationId}/messages` + toQuery(params)),
+
   sendMessage: (conversationId, clientMessageId, content) =>
     api.post(`/conversations/${conversationId}/messages`, {
       client_message_id: clientMessageId,
