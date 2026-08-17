@@ -64,6 +64,7 @@ func main() {
 
 	conversationSvc := &service.ConversationService{
 		Conversations: conversationRepo,
+		Messages:      messageRepo, // P3-4：驗證已讀錨點
 		Users:         userRepo,
 	}
 	messageSvc := &service.MessageService{
@@ -159,6 +160,12 @@ func main() {
 	v1.POST("/conversations/:id/messages", auth.Required(), messageHandler.Create)
 	v1.GET("/conversations", auth.Required(), conversationHandler.List)
 	v1.GET("/conversations/:id/messages", auth.Required(), messageHandler.List)
+	// ⚠️ /conversations/unread-count 必須在 /conversations/:id 之前註冊？
+	//    不需要 —— 這兩條路徑長度相同但 Gin 會優先比對靜態片段，
+	//    unread-count 不會被當成 :id。但目前沒有 GET /conversations/:id，
+	//    所以無論如何都不衝突。
+	v1.GET("/conversations/unread-count", auth.Required(), conversationHandler.UnreadCount)
+	v1.POST("/conversations/:id/read", auth.Required(), conversationHandler.MarkRead)
 
 	// Dev only（P3-1 驗收用，正式環境不註冊）
 	if cfg.IsDev() {

@@ -224,3 +224,96 @@ func (r *ConversationRepository) ListForUser(
 	}
 	return items, total, rows.Err()
 }
+
+// MarkRead 更新某人在某對話的已讀位置（決策 #71、#72）。
+//
+// 【只前進不後退】最後一行的 WHERE 是整個語句的重點。
+// 使用者開兩個分頁時，A 滑到最新標記已讀、B 還停在舊位置也送出標記——
+// 順序一亂，未讀數就會從 0 憑空長回。加上 WHERE 之後，
+// 舊的標記無法覆蓋新的（DO UPDATE 的條件不成立就整筆跳過）。
+//
+// 【錨點驗證在 DB 層】SELECT ... FROM messages WHERE conversation_id = $1
+// 同時把「這則訊息真的屬於這個對話」擋在資料庫層，
+// 而非只信任應用層檢查。錨點不合法時 INSERT 的來源是空集合，
+// 不會寫入任何列 —— 呼叫端據此回傳 ErrNotFound。
+//
+// 【為什麼存兩個欄位】last_read_message_id 給未來的「未讀分隔線」UI 用；
+// last_read_at 讓未讀數查詢維持單純的 m.created_at > r.last_read_at
+// （若只存 message_id，每個對話都要多一層 LATERAL 去解析錨點）。
+// 兩者在同一句 SQL 內從同一列取值，結構上不可能漂移。
+func (r *ConversationRepository) MarkRead(
+	ctx context.Context, conversationID, userID, lastReadMessageID string,
+) error {
+	const q = `
+		INSERT INTO conversation_reads
+		       (conversation_id, user_id, last_read_message_id, last_read_at, updated_at)
+		SELECT $1, $2, m.id, m.created_at, now()
+		FROM   messages m
+		WHERE  m.id = $3 AND m.conversation_id = $1
+		ON CONFLICT (conversation_id, user_id) DO UPDATE
+		SET    last_read_message_id = EXCLUDED.last_read_message_id,
+		       last_read_at         = EXCLUDED.last_read_at,
+		       updated_at           = now()
+		WHERE  EXCLUDED.last_read_at > conversation_reads.last_read_at`
+
+	tag, err := r.pool.Exec(ctx, q, conversationID, userID, lastReadMessageID)
+	if err != nil {
+		return err
+	}
+
+	// RowsAffected 為 0 有兩種可能：
+	//   (a) 錨點訊息不存在或不屬於本對話 → 應回報錯誤
+	//   (b) DO UPDATE 的 WHERE 不成立（送了較舊的位置）→ 正常，不是錯誤
+	// 兩者無法從 tag 區分，所以由呼叫端另外驗證錨點（見 service）。
+	_ = tag
+	return nil
+}
+
+// UnreadCount 取得某人在某對話的未讀數。
+//
+// 【NULL 陷阱】從未讀過的對話沒有 conversation_reads 那一列，
+// LEFT JOIN 出來是 NULL，而 `m.created_at > NULL` 的結果是 NULL 不是 true ——
+// 未讀數會算成 0。COALESCE(..., '-infinity') 讓「從未讀過」
+// 正確地等於「全部他人訊息皆未讀」。
+//
+// 不計自己傳的訊息（sender_id <> $2）。
+func (r *ConversationRepository) UnreadCount(
+	ctx context.Context, conversationID, userID string,
+) (int, error) {
+	const q = `
+		SELECT count(*)
+		FROM messages m
+		LEFT JOIN conversation_reads r
+		       ON r.conversation_id = m.conversation_id AND r.user_id = $2
+		WHERE m.conversation_id = $1
+		  AND m.sender_id <> $2
+		  AND m.created_at > COALESCE(r.last_read_at, '-infinity'::timestamptz)`
+
+	var n int
+	err := r.pool.QueryRow(ctx, q, conversationID, userID).Scan(&n)
+	return n, err
+}
+
+// TotalUnreadCount 取得某人所有對話的未讀總數（header 紅點用）。
+//
+// 條件與對話列表一致（決策 #74）：
+//   - 對方已軟刪的對話不計入
+//   - 沒有訊息的對話自然不會有未讀
+func (r *ConversationRepository) TotalUnreadCount(ctx context.Context, userID string) (int, error) {
+	const q = `
+		SELECT count(*)
+		FROM messages m
+		JOIN conversations c ON c.id = m.conversation_id
+		JOIN users other ON other.id = (
+		    CASE WHEN c.user_low_id = $1 THEN c.user_high_id ELSE c.user_low_id END
+		) AND other.deleted_at IS NULL
+		LEFT JOIN conversation_reads r
+		       ON r.conversation_id = c.id AND r.user_id = $1
+		WHERE (c.user_low_id = $1 OR c.user_high_id = $1)
+		  AND m.sender_id <> $1
+		  AND m.created_at > COALESCE(r.last_read_at, '-infinity'::timestamptz)`
+
+	var n int
+	err := r.pool.QueryRow(ctx, q, userID).Scan(&n)
+	return n, err
+}

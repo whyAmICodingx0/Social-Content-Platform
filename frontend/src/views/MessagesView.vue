@@ -11,6 +11,9 @@ import UserAvatar from '../components/UserAvatar.vue'
 import LoadingState from '../components/LoadingState.vue'
 import ConnectionStatus from '../components/ConnectionStatus.vue'
 import { fetchMessagesAfter } from '../utils/messages'
+import { useUnreadStore } from '../stores/unread'
+
+const unread = useUnreadStore()
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -72,6 +75,38 @@ function upsertMessage(msg) {
 
   messages.value.push({ ...msg, pending: false, failed: false })
   scrollToBottom()
+
+  // 正在看這個對話 → 立刻標記已讀
+  if (!isMine(msg)) markReadUpToLatest()
+}
+
+// 記住已經標記過的位置，避免重複打 API
+let lastMarkedId = null
+
+/**
+ * 標記已讀到目前最新的一則。
+ *
+ * 只在「頁面可見」時標記 —— 分頁在背景時使用者其實沒看到訊息，
+ * 標記已讀會讓他錯過通知。
+ *
+ * 後端是「只前進不後退」的 upsert（決策 #72），
+ * 所以就算多個分頁交錯送出，未讀數也不會倒退。
+ */
+async function markReadUpToLatest() {
+  if (!conversation.value || document.hidden) return
+
+  const latest = [...messages.value].reverse().find((m) => !m.pending)
+  if (!latest || latest.id === lastMarkedId) return
+
+  lastMarkedId = latest.id
+  try {
+    await conversationsApi.markRead(conversation.value.id, latest.id)
+    // 標記後重新拉權威的全域未讀數
+    await unread.refresh()
+  } catch {
+    // 失敗就讓下一次觸發重試
+    lastMarkedId = null
+  }
 }
 
 /**
@@ -154,6 +189,10 @@ async function catchUp() {
 // 捲到頂端附近就載入更舊的
 function onScroll() {
   if (listEl.value && listEl.value.scrollTop < 80) loadOlder()
+}
+
+function onVisibilityChange() {
+  if (!document.hidden) markReadUpToLatest()
 }
 
 async function load() {
@@ -271,6 +310,7 @@ onMounted(async () => {
 
   try {
     await loadInitialMessages()
+    markReadUpToLatest()
   } catch (err) {
     loadError.value = '載入歷史訊息失敗。'
     return
@@ -290,11 +330,15 @@ onMounted(async () => {
 
   // 若進頁時 WS 已經是連線狀態（不會再觸發 open），主動補一次
   if (ws.status === 'open') catchUp()
+
+  // 分頁從背景回到前景時，把累積的訊息標記為已讀
+  document.addEventListener('visibilitychange', onVisibilityChange)
 })
 
 onUnmounted(() => {
   if (unsubscribe) unsubscribe()
   if (unsubscribeOpen) unsubscribeOpen()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 </script>
 

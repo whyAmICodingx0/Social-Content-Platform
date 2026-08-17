@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -53,6 +54,7 @@ func (h *LikeHandler) fail(c *gin.Context, err error) {
 		api.Fail(c, http.StatusNotFound, api.CodeNotFound, "post not found")
 		return
 	}
+	log.Printf("<handler>.<method>: unexpected error: %v", err)
 	api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
 		"Service temporarily unavailable")
 }

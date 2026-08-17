@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -243,6 +244,7 @@ func (h *PostHandler) failPost(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrSlugExhausted):
 		api.Fail(c, http.StatusConflict, api.CodeSlugConflict, "could not generate a unique slug")
 	default:
+		log.Printf("<handler>.<method>: unexpected error: %v", err)
 		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
 			"Service temporarily unavailable")
 	}

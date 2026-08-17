@@ -5,6 +5,14 @@ import { conversationsApi } from '../api'
 import UserAvatar from '../components/UserAvatar.vue'
 import PaginationNav from '../components/PaginationNav.vue'
 import LoadingState from '../components/LoadingState.vue'
+import { onMounted, onUnmounted } from 'vue'
+import { useWsStore } from '../stores/ws'
+import { useAuthStore } from '../stores/auth'
+
+const ws = useWsStore()
+const auth = useAuthStore()
+
+let unsubscribe = null
 
 const route = useRoute()
 const router = useRouter()
@@ -61,6 +69,46 @@ function formatWhen(iso) {
     year: 'numeric', month: 'numeric', day: 'numeric',
   }).format(d)
 }
+
+/**
+ * 收到新訊息時更新列表：把該對話的最後一則訊息換掉、
+ * 未讀數 +1、並把它移到最上面。
+ *
+ * 若該對話不在目前這一頁（例如在第 2 頁，或是全新的對話），
+ * 就重新載入 —— 這種情況少見，直接重抓最單純。
+ */
+function onMessageCreated(data) {
+  const i = items.value.findIndex((it) => it.id === data.conversation_id)
+
+  if (i === -1) {
+    // 不在目前頁面上的對話（新對話或在別頁）→ 只在第一頁時重載
+    if (currentPage.value === 1) load()
+    return
+  }
+
+  const item = items.value[i]
+  const isMine = data.sender?.username === auth.user?.username
+
+  item.last_message = {
+    id: data.id,
+    content: data.content,
+    is_mine: isMine,
+    created_at: data.created_at,
+  }
+  if (!isMine) item.unread_count += 1
+
+  // 移到最上面（列表依最後訊息時間排序）
+  items.value.splice(i, 1)
+  items.value.unshift(item)
+}
+
+onMounted(() => {
+  unsubscribe = ws.on('message.created', onMessageCreated)
+})
+
+onUnmounted(() => {
+  if (unsubscribe) unsubscribe()
+})
 </script>
 
 <template>

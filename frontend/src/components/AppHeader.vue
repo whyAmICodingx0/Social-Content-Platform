@@ -3,6 +3,9 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { authApi } from '../api'
 import ConnectionStatus from './ConnectionStatus.vue'
+import { useUnreadStore } from '../stores/unread'
+
+const unread = useUnreadStore()
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -30,7 +33,12 @@ async function handleLogout() {
           <template v-if="auth.isAuthenticated">
             <ConnectionStatus />
             <RouterLink to="/feed" class="header__link">追蹤動態</RouterLink>
-            <RouterLink to="/messages" class="header__link">訊息</RouterLink>
+            <RouterLink to="/messages" class="header__link header__link--badge">
+              訊息
+              <span v-if="unread.count > 0" class="header__badge">
+                {{ unread.count > 99 ? '99+' : unread.count }}
+              </span>
+            </RouterLink>
             <RouterLink to="/new" class="header__link">寫文章</RouterLink>
             <RouterLink to="/me/posts" class="header__link">我的文章</RouterLink>
             <RouterLink :to="`/@${auth.user.username}`" class="header__user">
@@ -116,5 +124,24 @@ async function handleLogout() {
   .header__user {
     margin-left: auto;
   }
+}
+
+.header__link--badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.header__badge {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--color-danger);
+  color: #fff;
+  font-size: 0.7rem;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 </style>

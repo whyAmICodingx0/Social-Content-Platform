@@ -82,6 +82,54 @@ func (h *ConversationHandler) List(c *gin.Context) {
 	api.OKList(c, out, api.NewPagination(q, total))
 }
 
+// ---------- POST /api/v1/conversations/:id/read ----------
+
+type markReadRequest struct {
+	LastReadMessageID string `json:"last_read_message_id"`
+}
+
+func (h *ConversationHandler) MarkRead(c *gin.Context) {
+	u, ok := middleware.CurrentUser(c)
+	if !ok {
+		api.Fail(c, http.StatusUnauthorized, api.CodeUnauthenticated, "Authentication required")
+		return
+	}
+
+	var req markReadRequest
+	if !api.BindStrict(c, &req) {
+		return
+	}
+
+	unread, err := h.Svc.MarkRead(
+		c.Request.Context(), u.ID, c.Param("id"), req.LastReadMessageID)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+
+	api.OK(c, gin.H{"unread_count": unread})
+}
+
+// ---------- GET /api/v1/conversations/unread-count ----------
+//
+// header 紅點用。刻意做成獨立的輕量端點：
+// 它會在每次載入頁面與收到新訊息時被呼叫，不該扛整個對話列表的成本。
+func (h *ConversationHandler) UnreadCount(c *gin.Context) {
+	u, ok := middleware.CurrentUser(c)
+	if !ok {
+		api.Fail(c, http.StatusUnauthorized, api.CodeUnauthenticated, "Authentication required")
+		return
+	}
+
+	n, err := h.Svc.TotalUnread(c.Request.Context(), u.ID)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+
+	api.OK(c, gin.H{"unread_count": n})
+}
+
 // conversationListJSON：列表用的 Conversation shape。
 //
 // last_message.is_mine 讓前端不必自己比對 username 就能顯示「你：...」前綴。

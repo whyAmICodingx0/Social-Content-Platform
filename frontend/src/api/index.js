@@ -66,6 +66,13 @@ export const conversationsApi = {
       client_message_id: clientMessageId,
       content,
     }),
+    
+  unreadCount: () => api.get('/conversations/unread-count'),
+
+  markRead: (conversationId, lastReadMessageId) =>
+    api.post(`/conversations/${conversationId}/read`, {
+      last_read_message_id: lastReadMessageId,
+    }),
 }
 
 function toQuery(params) {

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -53,6 +54,7 @@ func (h *UserHandler) PatchMe(c *gin.Context) {
 		case errors.Is(err, repository.ErrNotFound):
 			api.Fail(c, http.StatusUnauthorized, api.CodeUnauthenticated, "Authentication required")
 		default:
+			log.Printf("<handler>.<method>: unexpected error: %v", err)
 			api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
 				"Service temporarily unavailable")
 		}

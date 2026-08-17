@@ -16,6 +16,7 @@ var ErrCannotMessageSelf = errors.New("service: cannot message self")
 
 type ConversationService struct {
 	Conversations *repository.ConversationRepository
+	Messages      *repository.MessageRepository // P3-4：驗證已讀錨點
 	Users         *repository.UserRepository
 }
 
@@ -96,4 +97,46 @@ func (s *ConversationService) List(
 	ctx context.Context, viewerID string, limit, offset int,
 ) ([]*repository.ConversationListItem, int, error) {
 	return s.Conversations.ListForUser(ctx, viewerID, limit, offset)
+}
+
+// MarkRead 標記已讀（決策 #72：只前進不後退）。
+// 回傳更新後的未讀數，讓前端不必再發一次請求。
+func (s *ConversationService) MarkRead(
+	ctx context.Context, viewerID, conversationID, lastReadMessageID string,
+) (int, error) {
+	// 1. 權限：非參與者一律 ErrNotFound（決策 #73）
+	if _, err := s.Conversations.GetForUser(ctx, conversationID, viewerID); err != nil {
+		return 0, err
+	}
+
+	// 2. 錨點必須是合法 UUID 且屬於本對話。
+	//    MarkRead 的 SQL 在錨點不合法時只是「不寫入任何列」，
+	//    無法從 RowsAffected 區分「錨點錯誤」與「送了較舊的位置」，
+	//    所以在這裡先驗一次，讓前者能明確回報錯誤。
+	if _, err := uuid.Parse(lastReadMessageID); err != nil {
+		return 0, &ValidationError{
+			Field: "last_read_message_id", Message: "must be a valid UUID",
+		}
+	}
+	if err := s.Messages.CursorExists(ctx, conversationID, lastReadMessageID); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return 0, &ValidationError{
+				Field:   "last_read_message_id",
+				Message: "message does not belong to this conversation",
+			}
+		}
+		return 0, err
+	}
+
+	// 3. upsert（送了較舊的位置時安靜跳過，不是錯誤）
+	if err := s.Conversations.MarkRead(ctx, conversationID, viewerID, lastReadMessageID); err != nil {
+		return 0, err
+	}
+
+	return s.Conversations.UnreadCount(ctx, conversationID, viewerID)
+}
+
+// TotalUnread 取得所有對話的未讀總數（header 紅點用）。
+func (s *ConversationService) TotalUnread(ctx context.Context, viewerID string) (int, error) {
+	return s.Conversations.TotalUnreadCount(ctx, viewerID)
 }
