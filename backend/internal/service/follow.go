@@ -2,13 +2,15 @@ package service
 
 import (
 	"context"
+	"log"
 
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/repository"
 )
 
 type FollowService struct {
-	Follows *repository.FollowRepository
-	Users   *repository.UserRepository
+	Follows  *repository.FollowRepository
+	Users    *repository.UserRepository
+	Notifier *Notifier // P4-1：追蹤通知
 }
 
 // Follow 讓「我」處於追蹤某人的狀態（PUT，冪等）。
@@ -30,10 +32,28 @@ func (s *FollowService) Follow(ctx context.Context, actorID, targetUsername stri
 	if err := s.Follows.Follow(ctx, actorID, target.ID); err != nil {
 		return nil, err
 	}
-	return s.Follows.GetState(ctx, target.ID, &actorID)
+
+	state, err := s.Follows.GetState(ctx, target.ID, &actorID)
+	if err != nil {
+		return nil, err
+	}
+
+	// follow 的 entity_id 為 NULL（決策 #85）。
+	// 去重靠 NULLS NOT DISTINCT —— 取消追蹤後再追蹤不會重複通知。
+	if s.Notifier != nil {
+		if nerr := s.Notifier.Notify(
+			ctx, target.ID, actorID, repository.NotificationTypeFollow, nil,
+		); nerr != nil {
+			log.Printf("follow: notify failed (target=%s): %v", target.ID, nerr)
+		}
+	}
+
+	return state, nil
 }
 
 // Unfollow 讓「我」處於未追蹤某人的狀態（DELETE，冪等）。
+//
+// ⚠️ 取消追蹤**不產生通知** —— 通知只在 Follow 產生。
 func (s *FollowService) Unfollow(ctx context.Context, actorID, targetUsername string) (*repository.FollowState, error) {
 	target, err := s.Users.GetByUsername(ctx, targetUsername)
 	if err != nil {

@@ -7,7 +7,8 @@ import (
 
 // 事件型別（決策：envelope 的 type 欄位，為未來擴充預留）
 const (
-	EventMessageCreated = "message.created"
+	EventMessageCreated      = "message.created"
+	EventNotificationCreated = "notification.created" // P4-1
 )
 
 // Event 是 server → client 的訊息封包。

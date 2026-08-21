@@ -23,14 +23,14 @@ func NewLikeRepository(pool *pgxpool.Pool) *LikeRepository {
 	return &LikeRepository{pool: pool}
 }
 
-// FindLikeablePost 檢查文章是否可被按讚（決策 #43）。
-// 條件：存在、未軟刪、作者未軟刪、且 status = 'published'。
+// FindLikeablePost 檢查文章是否可被按讚（決策 #43），
+// 並回傳文章作者 id 供通知使用（決策 #89：不需要額外 SELECT）。
 //
-// 草稿一律視為不存在——包括作者本人，所以這個查詢不需要 viewer 參數，
-// 也少了一個分支。
-func (r *LikeRepository) FindLikeablePost(ctx context.Context, postID string) error {
+// 條件：存在、未軟刪、作者未軟刪、且 status = 'published'。
+// 草稿一律視為不存在 —— 包括作者本人，故此查詢不接收 viewer 參數。
+func (r *LikeRepository) FindLikeablePost(ctx context.Context, postID string) (string, error) {
 	const q = `
-		SELECT 1
+		SELECT p.author_id
 		FROM posts p
 		JOIN users u ON u.id = p.author_id
 		WHERE p.id = $1
@@ -38,12 +38,15 @@ func (r *LikeRepository) FindLikeablePost(ctx context.Context, postID string) er
 		  AND p.deleted_at IS NULL
 		  AND u.deleted_at IS NULL`
 
-	var dummy int
-	err := r.pool.QueryRow(ctx, q, postID).Scan(&dummy)
+	var authorID string
+	err := r.pool.QueryRow(ctx, q, postID).Scan(&authorID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
+		return "", ErrNotFound
 	}
-	return err
+	if err != nil {
+		return "", err
+	}
+	return authorID, nil
 }
 
 // Like 建立按讚。

@@ -110,6 +110,34 @@ func main() {
 	}
 	healthHandler := handler.NewHealthHandler(pool, rdb)
 
+	// ---------- 通知（P4-1）----------
+	// 位置要求只有一個：hub 之後、路由註冊之前。
+	// 三個既有 service 用「欄位後補」的方式接上，不搬動它們的建立順序
+	// （followSvc 在 hub 之前建立，硬搬會扯出一串相依）。
+	notificationRepo := repository.NewNotificationRepository(pool)
+	notificationSvc := &service.NotificationService{Notifications: notificationRepo}
+	notificationHandler := &handler.NotificationHandler{Svc: notificationSvc}
+
+	notifier := &service.Notifier{
+		Notifications: notificationRepo,
+		// OnCreated 只在「確實新增了一筆通知」時被呼叫（決策 #88）——
+		// 去重擋下時不會進來，這是幽靈紅點的唯一防線。
+		OnCreated: func(recipientID string, n *repository.Notification) {
+			// 只推給 recipient（N-7 定案）。
+			// payload 與 GET /notifications 單筆完全同形狀，用同一個函式產生。
+			(&ws.Notifier{Hub: hub}).Broadcast(
+				[]string{recipientID},
+				ws.EventNotificationCreated,
+				handler.NotificationJSON(n),
+			)
+		},
+	}
+
+	// 欄位後補：不影響 likeSvc / commentSvc / followSvc 原本的建立位置
+	likeSvc.Notifier = notifier
+	commentSvc.Notifier = notifier
+	followSvc.Notifier = notifier
+
 	if !cfg.IsDev() {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -166,6 +194,14 @@ func main() {
 	//    所以無論如何都不衝突。
 	v1.GET("/conversations/unread-count", auth.Required(), conversationHandler.UnreadCount)
 	v1.POST("/conversations/:id/read", auth.Required(), conversationHandler.MarkRead)
+
+	// Notifications（P4-1）
+	// Gin 的路由樹優先比對靜態片段，unread-count / read / read-all 不會互相衝突，
+	// 也沒有 :id 參數路由與它們競爭。
+	v1.GET("/notifications", auth.Required(), notificationHandler.List)
+	v1.GET("/notifications/unread-count", auth.Required(), notificationHandler.UnreadCount)
+	v1.POST("/notifications/read", auth.Required(), notificationHandler.MarkRead)
+	v1.POST("/notifications/read-all", auth.Required(), notificationHandler.MarkAllRead)
 
 	// Dev only（P3-1 驗收用，正式環境不註冊）
 	if cfg.IsDev() {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log"
 	"strings"
 	"unicode/utf8"
 
@@ -13,6 +14,7 @@ const maxCommentLen = 1000
 
 type CommentService struct {
 	Comments *repository.CommentRepository
+	Notifier *Notifier // P4-1：留言通知
 }
 
 // List 列出某篇文章的留言。
@@ -31,10 +33,31 @@ func (s *CommentService) Create(ctx context.Context, authorID, postID, rawConten
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.Comments.FindCommentablePost(ctx, postID); err != nil {
+
+	// FindCommentablePost 本來就回傳文章作者 id（決策 #89：不需要額外 SELECT）
+	postAuthorID, err := s.Comments.FindCommentablePost(ctx, postID)
+	if err != nil {
 		return nil, err
 	}
-	return s.Comments.Create(ctx, postID, authorID, content)
+
+	cm, err := s.Comments.Create(ctx, postID, authorID, content)
+	if err != nil {
+		return nil, err
+	}
+
+	// ⚠️ entity_id 用 **comment_id 而非 post_id**（決策 #85）：
+	// 同一人可在同一篇文章留多則留言，每則都該通知；
+	// 用 post_id 會被去重索引擋掉，只有第一則會通知。
+	if s.Notifier != nil {
+		cid := cm.ID
+		if nerr := s.Notifier.Notify(
+			ctx, postAuthorID, authorID, repository.NotificationTypeComment, &cid,
+		); nerr != nil {
+			log.Printf("comment: notify failed (comment=%s): %v", cm.ID, nerr)
+		}
+	}
+
+	return cm, nil
 }
 
 // Update 編輯留言。
