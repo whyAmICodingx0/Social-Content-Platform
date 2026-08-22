@@ -66,13 +66,24 @@ export const conversationsApi = {
       client_message_id: clientMessageId,
       content,
     }),
-    
+
   unreadCount: () => api.get('/conversations/unread-count'),
 
   markRead: (conversationId, lastReadMessageId) =>
     api.post(`/conversations/${conversationId}/read`, {
       last_read_message_id: lastReadMessageId,
     }),
+}
+
+export const notificationsApi = {
+  list: (params) => api.get('/notifications' + toQuery(params)),
+  unreadCount: () => api.get('/notifications/unread-count'),
+  markRead: (ids) => api.post('/notifications/read', { ids }),
+
+  // ⚠️ 刻意不傳 body：client.js 的 request() 只在 body !== undefined 時
+  // 才設 Content-Type 與 body —— 這正是後端 read-all 要求的形狀
+  // （它不呼叫 BindStrict，空 body 才不會被判成 400）。
+  markAllRead: () => api.post('/notifications/read-all'),
 }
 
 function toQuery(params) {

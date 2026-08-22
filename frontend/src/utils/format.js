@@ -13,3 +13,27 @@ export function formatDate(iso) {
     day: 'numeric',
   }).format(d)
 }
+
+/**
+ * 相對時間：剛剛 / N 分鐘前 / N 小時前 / N 天前 / 日期。
+ * 通知列表用 —— 「3 分鐘前」比「2026年8月18日」有用得多。
+ */
+export function formatRelativeTime(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+
+  const diffMs = Date.now() - d.getTime()
+  const min = Math.floor(diffMs / 60000)
+
+  if (min < 1) return '剛剛'
+  if (min < 60) return `${min} 分鐘前`
+
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `${hr} 小時前`
+
+  const day = Math.floor(hr / 24)
+  if (day < 7) return `${day} 天前`
+
+  return formatDate(iso)
+}

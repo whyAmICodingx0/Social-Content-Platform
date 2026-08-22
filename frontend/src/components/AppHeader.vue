@@ -3,6 +3,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { authApi } from '../api'
 import ConnectionStatus from './ConnectionStatus.vue'
+import NotificationBell from './NotificationBell.vue'
 import { useUnreadStore } from '../stores/unread'
 
 const unread = useUnreadStore()
@@ -32,6 +33,7 @@ async function handleLogout() {
         <template v-if="auth.ready">
           <template v-if="auth.isAuthenticated">
             <ConnectionStatus />
+            <NotificationBell />
             <RouterLink to="/feed" class="header__link">追蹤動態</RouterLink>
             <RouterLink to="/messages" class="header__link header__link--badge">
               訊息
