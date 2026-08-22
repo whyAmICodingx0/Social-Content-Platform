@@ -204,6 +204,8 @@ type ListPostsInput struct {
 	Offset           int
 	ViewerID         *string
 	FeedFor          *string
+	SearchPattern    *string
+	SearchQuery      *string
 }
 
 func (s *PostService) List(ctx context.Context, in ListPostsInput) ([]*repository.Post, int, error) {
@@ -219,5 +221,7 @@ func (s *PostService) List(ctx context.Context, in ListPostsInput) ([]*repositor
 		Offset:           in.Offset,
 		ViewerID:         in.ViewerID,
 		FeedFor:          in.FeedFor,
+		SearchPattern:    in.SearchPattern,
+		SearchQuery:      in.SearchQuery,
 	})
 }

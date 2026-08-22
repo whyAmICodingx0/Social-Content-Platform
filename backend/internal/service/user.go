@@ -64,3 +64,10 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID string, in Updat
 func (s *UserService) GetPublicProfile(ctx context.Context, username string) (*repository.User, error) {
 	return s.Users.GetByUsername(ctx, username)
 }
+
+// SearchUsers 搜尋使用者（決策 #101）。
+func (s *UserService) SearchUsers(
+	ctx context.Context, terms *SearchTerms, limit, offset int,
+) ([]*repository.SearchUser, int, error) {
+	return s.Users.Search(ctx, terms.Pattern, terms.Query, limit, offset)
+}

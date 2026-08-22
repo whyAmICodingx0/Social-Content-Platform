@@ -137,6 +137,8 @@ func main() {
 	likeSvc.Notifier = notifier
 	commentSvc.Notifier = notifier
 	followSvc.Notifier = notifier
+	// Search（P4-3）
+	searchHandler := &handler.SearchHandler{PostSvc: postSvc, UserSvc: userSvc}
 
 	if !cfg.IsDev() {
 		gin.SetMode(gin.ReleaseMode)
@@ -202,6 +204,10 @@ func main() {
 	v1.GET("/notifications/unread-count", auth.Required(), notificationHandler.UnreadCount)
 	v1.POST("/notifications/read", auth.Required(), notificationHandler.MarkRead)
 	v1.POST("/notifications/read-all", auth.Required(), notificationHandler.MarkAllRead)
+
+	// Search（P4-3）
+	v1.GET("/search/posts", auth.Optional(), searchHandler.SearchPosts)
+	v1.GET("/search/users", searchHandler.SearchUsers)
 
 	// Dev only（P3-1 驗收用，正式環境不註冊）
 	if cfg.IsDev() {

@@ -351,6 +351,12 @@ type ListParams struct {
 	// FeedFor 非 nil 時啟用 feed 篩選：
 	// 只回「此人追蹤的作者 + 此人自己」的文章（決策 #45）
 	FeedFor *string
+
+	// 搜尋（P4-3）。兩者必須同時給或同時不給。
+	// SearchPattern：已 escape 並加上 % 的 ILIKE pattern
+	// SearchQuery：未 escape 的原始 query，供 word_similarity 排序
+	SearchPattern *string
+	SearchQuery   *string
 }
 
 // List 回傳文章清單與符合條件的總筆數。
@@ -394,9 +400,33 @@ func (r *PostRepository) List(ctx context.Context, p ListParams) ([]*Post, int, 
 		)`, *p.FeedFor)
 	}
 
+	// 搜尋命中條件（P4-3）。
+	//
+	// ⚠️ 不可寫 COALESCE(p.excerpt, '')：
+	//   (a) 不需要 —— false OR NULL = NULL → 排除，而 NULL excerpt
+	//       本來就不該匹配任何東西，排除正是想要的語意
+	//   (b) 更嚴重 —— GIN 索引建在裸欄位 excerpt 上，
+	//       COALESCE 讓 planner 無法匹配，索引永遠用不到
+	//
+	// ⚠️ 這裡不能用 add()：pattern 要在兩個位置被引用
+	//    （WHERE 的命中條件、ORDER BY 的「標題命中優先」），
+	//    所以需要保留 searchIdx 供後面重複使用。
+	searchIdx := 0
+	if p.SearchPattern != nil {
+		args = append(args, *p.SearchPattern)
+		searchIdx = len(args)
+		where = append(where, fmt.Sprintf(
+			`(p.title ILIKE $%[1]d ESCAPE '\' OR p.excerpt ILIKE $%[1]d ESCAPE '\')`,
+			searchIdx,
+		))
+	}
+
 	whereSQL := "WHERE " + strings.Join(where, " AND ")
 
 	// 先算總數。計數欄位不影響筆數，故 count 查詢不需要 LATERAL。
+	//
+	// ⚠️ SearchQuery（word_similarity 用）必須在這行之後才 append ——
+	// count 查詢沒有 ORDER BY，多收一個沒用到的參數 pgx 會直接報錯。
 	var total int
 	countSQL := `SELECT count(*) FROM posts p JOIN users u ON u.id = p.author_id ` + whereSQL
 	if err := r.pool.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
@@ -406,15 +436,35 @@ func (r *PostRepository) List(ctx context.Context, p ListParams) ([]*Post, int, 
 		return []*Post{}, 0, nil
 	}
 
-	sortCol := "p.created_at"
-	if p.OrderByPublished {
-		sortCol = "p.published_at"
+	// 排序。搜尋模式的排序與其他模式完全不同（相關性優先）。
+	var orderSQL string
+	if p.SearchPattern != nil {
+		args = append(args, *p.SearchQuery)
+		qIdx := len(args)
+		// 標題命中優先（true > false）→ word_similarity → tie-break（決策 #27）。
+		//
+		// word_similarity 而非 similarity：後者被 haystack 長度稀釋，
+		// 200 字的 excerpt 對短 query 的分數趨近 0。
+		// 也不用 strict_word_similarity：它要求對齊詞邊界，中文沒有詞邊界會退化。
+		//
+		// ⚠️ 第一個參數是**未 escape** 的 query（見 service.SearchTerms 的說明）。
+		orderSQL = fmt.Sprintf(
+			`ORDER BY (p.title ILIKE $%d ESCAPE '\') DESC,
+			          word_similarity($%d, p.title) DESC,
+			          p.published_at DESC, p.id DESC`,
+			searchIdx, qIdx,
+		)
+	} else {
+		sortCol := "p.created_at"
+		if p.OrderByPublished {
+			sortCol = "p.published_at"
+		}
+		dir := "DESC"
+		if p.Asc {
+			dir = "ASC"
+		}
+		orderSQL = fmt.Sprintf("ORDER BY %s %s, p.id %s", sortCol, dir, dir)
 	}
-	dir := "DESC"
-	if p.Asc {
-		dir = "ASC"
-	}
-	orderSQL := fmt.Sprintf("ORDER BY %s %s, p.id %s", sortCol, dir, dir)
 
 	// viewer 與分頁參數接在篩選參數之後
 	args = append(args, p.ViewerID, p.Limit, p.Offset)

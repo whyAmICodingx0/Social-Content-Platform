@@ -5,6 +5,16 @@ import { authApi } from '../api'
 import ConnectionStatus from './ConnectionStatus.vue'
 import NotificationBell from './NotificationBell.vue'
 import { useUnreadStore } from '../stores/unread'
+import { ref } from 'vue'
+
+const searchDraft = ref('')
+
+function submitSearch() {
+  const term = searchDraft.value.trim()
+  if (!term) return
+  router.push({ path: '/search', query: { q: term } })
+  searchDraft.value = ''
+}
 
 const unread = useUnreadStore()
 
@@ -27,6 +37,16 @@ async function handleLogout() {
   <header class="header">
     <div class="container header__inner">
       <RouterLink to="/" class="header__logo">Inkwell</RouterLink>
+
+      <form class="header__search" @submit.prevent="submitSearch">
+        <input
+          v-model="searchDraft"
+          class="header__search-input"
+          type="search"
+          placeholder="搜尋"
+          aria-label="搜尋"
+        />
+      </form>
 
       <nav class="header__nav">
         <!-- ready 之前不顯示，避免閃過錯誤狀態 -->
@@ -145,5 +165,36 @@ async function handleLogout() {
   line-height: 18px;
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+
+.header__search {
+  flex: 1;
+  max-width: 260px;
+  margin: 0 var(--space-4);
+}
+
+.header__search-input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.header__search-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  background: var(--color-surface);
+}
+
+@media (max-width: 640px) {
+  .header__search {
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    order: 3;   /* 手機版排到導覽列下方 */
+  }
 }
 </style>

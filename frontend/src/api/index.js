@@ -86,6 +86,11 @@ export const notificationsApi = {
   markAllRead: () => api.post('/notifications/read-all'),
 }
 
+export const searchApi = {
+  posts: (params) => api.get('/search/posts' + toQuery(params)),
+  users: (params) => api.get('/search/users' + toQuery(params)),
+}
+
 function toQuery(params) {
   if (!params) return ''
   const usable = Object.entries(params).filter(
