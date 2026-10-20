@@ -1,0 +1,52 @@
+# Upstash 保活（決策 #153）
+#
+# 為什麼要這個：Upstash 免費資料庫閒置會被封存，封存後連線位址失效、網站無法登入。
+# 做法：定期用「唯讀 token」讀一個固定的 sentinel key。
+#   - 直接打 Upstash 的 REST API，不經過 Render、不碰 /healthz
+#     → 不會喚醒 Render（instance hours）也不會喚醒 Neon（CU-hours）
+#   - 讀到的值不對（資料庫被換掉、被封存、secret 設錯）→ job 失敗 → GitHub 寄信通知
+#
+# ⚠️ public repo 連續 60 天沒有任何 commit，GitHub 會自動停用這個排程。
+#    到 Actions 分頁點這個 workflow → Enable workflow 即可恢復。
+
+name: Upstash keepalive
+
+on:
+  schedule:
+    # 每週一、四 02:23 UTC（台灣時間 10:23）。
+    # 不排在整點：GitHub 在整點負載最高，排程可能延遲甚至被跳過。
+    - cron: '23 2 * * 1,4'
+  workflow_dispatch: # 允許在 Actions 頁面手動執行（驗收用）
+
+# 這個 job 不需要碰 repo 的任何東西，把預設的 GITHUB_TOKEN 權限全部拿掉
+permissions: {}
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Read sentinel key with read-only token
+        env:
+          UPSTASH_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_READONLY_TOKEN }}
+        run: |
+          status=0
+          body=$(curl -sS --fail-with-body --max-time 20 -X POST "$UPSTASH_URL" \
+            -H "Authorization: Bearer $UPSTASH_TOKEN" \
+            -d '["GET","scp:keepalive:sentinel"]') || status=$?
+
+          echo "curl exit code: $status"
+          echo "response: $body"
+
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Upstash request failed (database archived, URL changed, or token invalid)"
+            exit 1
+          fi
+
+          if ! echo "$body" | jq -e '.result == "inkwell-prod"' > /dev/null; then
+            echo "::error::Sentinel mismatch: database was replaced/emptied, or the secret points to another database"
+            exit 1
+          fi
+
+          echo "Upstash is alive and the sentinel matches."
