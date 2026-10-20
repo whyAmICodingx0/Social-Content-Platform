@@ -25,6 +25,11 @@ type Config struct {
 	PostLoginURL       string // callback 成功（老用戶）導向
 	OnboardingURL      string // callback 新用戶導向
 	AuthErrorURL       string // OAuth 失敗導向（會附上 ?error=xxx）
+
+	// Cloudinary（P5-1）
+	CloudinaryCloudName string
+	CloudinaryAPIKey    string
+	CloudinaryAPISecret string
 }
 
 func Load() (*Config, error) {
@@ -43,6 +48,10 @@ func Load() (*Config, error) {
 		PostLoginURL:       getEnv("POST_LOGIN_URL", "http://localhost:5173/"),
 		OnboardingURL:      getEnv("ONBOARDING_URL", "http://localhost:5173/onboarding"),
 		AuthErrorURL:       getEnv("AUTH_ERROR_URL", "http://localhost:5173/login"),
+
+		CloudinaryCloudName: os.Getenv("CLOUDINARY_CLOUD_NAME"),
+		CloudinaryAPIKey:    os.Getenv("CLOUDINARY_API_KEY"),
+		CloudinaryAPISecret: os.Getenv("CLOUDINARY_API_SECRET"),
 	}
 
 	// spec 4.6 的護欄:正式環境不允許不安全的 cookie 設定
@@ -51,6 +60,12 @@ func Load() (*Config, error) {
 	}
 	if cfg.GoogleClientID == "" || cfg.GoogleClientSecret == "" || cfg.GoogleRedirectURL == "" {
 		return nil, fmt.Errorf("GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URL are required（見任務 F-1）")
+	}
+	// P5-1 護欄：正式環境缺任一 Cloudinary 憑證就拒絕啟動（同 COOKIE_SECURE 的模式）。
+	// 本機若漏設，服務仍會啟動，媒體端點回 503。
+	if cfg.AppEnv == "prod" &&
+		(cfg.CloudinaryCloudName == "" || cfg.CloudinaryAPIKey == "" || cfg.CloudinaryAPISecret == "") {
+		return nil, fmt.Errorf("CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET are required when APP_ENV=prod")
 	}
 	return cfg, nil
 }

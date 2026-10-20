@@ -17,4 +17,5 @@ const (
 	// Phase 3
 	CodeCannotMessageSelf = "CANNOT_MESSAGE_SELF"
 	CodeInvalidCursor     = "INVALID_CURSOR" // P3-3 使用，一併定義避免重複改檔
+	CodeRateLimited       = "RATE_LIMITED"   // P5-1：上傳配額（決策 #137）
 )

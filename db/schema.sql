@@ -255,3 +255,164 @@ CREATE TABLE conversation_reads (
 
     PRIMARY KEY (conversation_id, user_id)
 );
+
+
+-- ============================================================
+-- Phase 4：通知系統 + 搜尋
+-- ============================================================
+
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- ------------------------------------------------------------
+-- notifications
+-- ------------------------------------------------------------
+CREATE TABLE notifications (
+    id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    -- 收到通知的人
+    recipient_id UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+    -- 觸發者。NOT NULL：決策 #20 已定案 users 只做 soft delete，
+    -- 所以「actor 消失」的情況不存在，nullable 是多餘的複雜度。
+    -- 更重要的是：SET NULL 搭配下方的 NULLS NOT DISTINCT 去重索引，
+    -- 會讓多筆不同通知被誤判為同一筆。
+    -- ON DELETE CASCADE 與專案內其他 8 個 users 外鍵一致。
+    actor_id     UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+    type         TEXT        NOT NULL CHECK (type IN ('like', 'comment', 'follow')),
+
+    -- 相關實體（polymorphic，不設 FK —— 型別依 type 而異）：
+    --   like    → post_id
+    --   comment → comment_id（不是 post_id！同一人可在同一篇文章留多則留言，
+    --             每則都該通知，用 comment_id 才不會被去重索引擋掉）
+    --   follow  → NULL
+    entity_id    UUID,
+
+    -- ⚠️ 不設 is_read 欄位。NULL = 未讀、非 NULL = 已讀。
+    -- 兩個欄位表達同一件事就是兩份真相，遲早不一致。
+    -- 這不違反決策 #71 —— #71 禁止的是「沒有那一列」與「NULL」表達同一狀態，
+    -- 此處列必然存在，NULL 是唯一的表示法。
+    read_at      TIMESTAMPTZ,
+
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    -- 不通知自己。應用層也會先擋（給可讀訊息），DB 是最終防線。
+    -- 同決策 #66 / #28 的雙層原則。
+    CONSTRAINT notifications_no_self CHECK (recipient_id <> actor_id),
+
+    -- ⚠️ 這個 CHECK 與下方的 NULLS NOT DISTINCT 互鎖，缺一不可：
+    -- 它保證「只有 follow 的 entity_id 是 NULL」，
+    -- 因此 NULLS NOT DISTINCT 不會誤把兩筆不同的 like 當成同一筆。
+    CONSTRAINT notifications_entity_check CHECK (
+        (type IN ('like', 'comment') AND entity_id IS NOT NULL)
+     OR (type = 'follow'            AND entity_id IS NULL)
+    )
+);
+
+-- 通知列表：某人的通知依時間新到舊（tie-break 用 id，決策 #27）
+CREATE INDEX notifications_recipient_idx
+    ON notifications (recipient_id, created_at DESC, id DESC);
+
+-- 未讀數。
+-- ⚠️ 這不是 notifications_recipient_idx 的冗餘：後者無法過濾 read_at，
+-- 用它算未讀數要掃過該使用者的全部通知；partial index 只含未讀列，小得多。
+-- （對照 P3-0 刪掉的 conversations_user_low_idx —— 那個才是真正的前綴冗餘。）
+CREATE INDEX notifications_unread_idx
+    ON notifications (recipient_id)
+    WHERE read_at IS NULL;
+
+-- 去重（決策 #85）。
+-- NULLS NOT DISTINCT（PG 15+）讓 follow 類型（entity_id 為 NULL）也能去重 ——
+-- 沒有它，PostgreSQL 預設把 NULL 視為互不相同，追蹤通知會完全失去去重能力。
+CREATE UNIQUE INDEX notifications_dedup_key
+    ON notifications (recipient_id, actor_id, type, entity_id)
+    NULLS NOT DISTINCT;
+
+-- ------------------------------------------------------------
+-- 搜尋索引（決策 #94：只索引 title 與 excerpt，不索引 content_md）
+-- ------------------------------------------------------------
+-- 不索引 content_md 的理由：Neon 免費層只有 0.5GB，
+-- 而 excerpt（寫入時產生的 200 字摘要）對「找文章」的效果已經足夠。
+
+CREATE INDEX posts_title_trgm_idx
+    ON posts USING GIN (title gin_trgm_ops)
+    WHERE status = 'published' AND deleted_at IS NULL;
+
+-- excerpt 是 nullable（schema 定義 + 寫入用 NULLIF），
+-- 故 partial index 加上 excerpt IS NOT NULL 以縮小索引
+CREATE INDEX posts_excerpt_trgm_idx
+    ON posts USING GIN (excerpt gin_trgm_ops)
+    WHERE status = 'published' AND deleted_at IS NULL AND excerpt IS NOT NULL;
+
+-- 使用者搜尋（決策 #101）
+CREATE INDEX users_username_trgm_idx
+    ON users USING GIN (username gin_trgm_ops)
+    WHERE deleted_at IS NULL;
+
+CREATE INDEX users_display_name_trgm_idx
+    ON users USING GIN (display_name gin_trgm_ops)
+    WHERE deleted_at IS NULL AND display_name IS NOT NULL;
+
+
+
+-- ============================================================
+-- Phase 5：媒體上傳（Cloudinary）
+-- 來源：db/migrations/00005_phase5_media.sql
+-- ============================================================
+
+CREATE TABLE media (
+    id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner_id           UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+    -- asset_id 不可變；public_id 可被 rename —— 唯一性與冪等都下在 asset_id（決策 #113）
+    provider_asset_id  TEXT        NOT NULL,
+    provider_public_id TEXT        NOT NULL,
+
+    -- 刻意不設 kind 欄位 —— 它完全由 purpose 決定（決策 #129）
+    purpose            TEXT        NOT NULL
+                       CHECK (purpose IN ('avatar', 'post_image', 'post_video')),
+
+    -- P5 一律寫 'ready'；'pending' / 'failed' 為未來非同步路徑預留（決策 #118）
+    status             TEXT        NOT NULL
+                       CHECK (status IN ('pending', 'ready', 'failed')),
+
+    -- 以下全部由後端 Admin API 反查後寫入，不採信前端回報（決策 #114）
+    url                TEXT        NOT NULL,
+    thumbnail_url      TEXT,
+    format             TEXT        NOT NULL,
+    bytes              BIGINT      NOT NULL,
+    width              INT,
+    height             INT,
+    duration           REAL,
+
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    CONSTRAINT media_provider_asset_key UNIQUE (provider_asset_id),
+
+    CONSTRAINT media_duration_check CHECK (
+        (purpose =  'post_video' AND duration IS NOT NULL)
+     OR (purpose <> 'post_video' AND duration IS NULL)
+    )
+);
+
+CREATE INDEX media_owner_idx ON media (owner_id, created_at DESC, id DESC);
+
+
+-- post_media：文章擁有哪些媒體。
+-- 對圖片只用於生命週期追蹤，不影響渲染（決策 #112）；對影片同時是附件區塊的渲染來源。
+CREATE TABLE post_media (
+    post_id  UUID NOT NULL REFERENCES posts(id)  ON DELETE CASCADE,
+    media_id UUID NOT NULL REFERENCES media(id)  ON DELETE CASCADE,
+    position INT  NOT NULL DEFAULT 0,
+    PRIMARY KEY (post_id, media_id)
+);
+
+CREATE INDEX post_media_media_idx ON post_media (media_id);
+
+
+-- users.avatar_media_id：生命週期指標（決策 #111、#131）
+ALTER TABLE users
+    ADD COLUMN avatar_media_id UUID REFERENCES media(id) ON DELETE SET NULL;
+
+CREATE INDEX users_avatar_media_idx ON users (avatar_media_id)
+    WHERE avatar_media_id IS NOT NULL;

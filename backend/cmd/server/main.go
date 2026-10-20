@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/api"
+	"github.com/whyAmICodingx0/Social-Content-Platform/internal/cloudinary" // P5-1
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/config"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/cookies"
 	"github.com/whyAmICodingx0/Social-Content-Platform/internal/googleoauth"
@@ -140,6 +141,18 @@ func main() {
 	// Search（P4-3）
 	searchHandler := &handler.SearchHandler{PostSvc: postSvc, UserSvc: userSvc}
 
+	// ---------- 媒體上傳（P5-1）----------
+	cld := cloudinary.New(cfg.CloudinaryCloudName, cfg.CloudinaryAPIKey, cfg.CloudinaryAPISecret)
+	if !cld.Configured() {
+		log.Println("cloudinary not configured: media endpoints will return 503")
+	}
+	mediaSvc := &service.MediaService{
+		Media:      repository.NewMediaRepository(pool),
+		Cloudinary: cld,
+		Quota:      store.NewUploadQuotaStore(rdb),
+	}
+	mediaHandler := &handler.MediaHandler{Svc: mediaSvc}
+
 	if !cfg.IsDev() {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -208,6 +221,10 @@ func main() {
 	// Search（P4-3）
 	v1.GET("/search/posts", auth.Optional(), searchHandler.SearchPosts)
 	v1.GET("/search/users", searchHandler.SearchUsers)
+
+	// Media（P5-1）
+	v1.POST("/media/signature", auth.Required(), mediaHandler.Signature)
+	v1.POST("/media", auth.Required(), mediaHandler.Report)
 
 	// Dev only（P3-1 驗收用，正式環境不註冊）
 	if cfg.IsDev() {
