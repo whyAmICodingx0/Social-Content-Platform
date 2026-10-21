@@ -26,18 +26,25 @@ export class CloudinaryUploadError extends Error {
   }
 }
 
-const UPLOAD_TIMEOUT_MS = 120_000
+// 圖片壓縮後通常不到 1MB，2 分鐘很寬裕。影片的逾時由呼叫端另外指定（P5-4）
+const DEFAULT_TIMEOUT_MS = 120_000
 
 /**
  * 把 blob 直接上傳到 Cloudinary。
  *
  * @param {object} ticket  POST /media/signature 回應的 data：{ upload_url, fields, max_bytes, ... }
- * @param {Blob} blob      已壓縮好的檔案
+ * @param {Blob} blob      要上傳的檔案（圖片是壓縮後的 JPEG；影片是原檔）
  * @param {object} [opts]
  * @param {(ratio: number) => void} [opts.onProgress]  0 ~ 1
+ * @param {string} [opts.fileName]   送給 Cloudinary 的檔名（只影響 Media Library 顯示的原始檔名）
+ * @param {number} [opts.timeoutMs]  逾時毫秒數
  * @returns {Promise<object>} Cloudinary 的回應（含 asset_id、public_id，重送時含 existing: true）
  */
-export function uploadToCloudinary(ticket, blob, { onProgress } = {}) {
+export function uploadToCloudinary(
+  ticket,
+  blob,
+  { onProgress, fileName = 'upload.jpg', timeoutMs = DEFAULT_TIMEOUT_MS } = {},
+) {
   return new Promise((resolve, reject) => {
     const form = new FormData()
 
@@ -46,11 +53,11 @@ export function uploadToCloudinary(ticket, blob, { onProgress } = {}) {
     for (const [key, value] of Object.entries(ticket.fields)) {
       form.append(key, value)
     }
-    form.append('file', blob, 'upload.jpg')
+    form.append('file', blob, fileName)
 
     const xhr = new XMLHttpRequest()
     xhr.open('POST', ticket.upload_url)
-    xhr.timeout = UPLOAD_TIMEOUT_MS
+    xhr.timeout = timeoutMs
 
     // 跨來源的 XHR 預設就不帶 cookie。明確寫出來表達意圖：我們的 sid 絕不能送到第三方。
     xhr.withCredentials = false

@@ -30,3 +30,17 @@ func TestStringToSign_SortsKeys(t *testing.T) {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}
 }
+
+// P5-4（決策 #171）：影片的反查必須帶 media_metadata=true，否則拿不到 duration，
+// 所有影片上傳都會被 fail closed 拒絕；圖片則不帶。
+func TestResourceURL(t *testing.T) {
+	video := resourceURL("demo", "video", "pv_abc")
+	if want := "https://api.cloudinary.com/v1_1/demo/resources/video/upload/pv_abc?media_metadata=true"; video != want {
+		t.Fatalf("video:\n got %s\nwant %s", video, want)
+	}
+
+	image := resourceURL("demo", "image", "pi_abc")
+	if want := "https://api.cloudinary.com/v1_1/demo/resources/image/upload/pi_abc"; image != want {
+		t.Fatalf("image:\n got %s\nwant %s", image, want)
+	}
+}

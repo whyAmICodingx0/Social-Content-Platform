@@ -110,8 +110,8 @@ type Resource struct {
 	Bytes        int64  `json:"bytes"`
 	Width        int    `json:"width"`
 	Height       int    `json:"height"`
-	// ⚠️ 需確認：Admin API 的影片資源是否帶 duration（P5-4 實測）。
-	//            缺值時 service 一律拒絕（fail closed，決策 #138）。
+	// 影片長度（秒）。Admin API 預設不回傳，查詢時要加 media_metadata=true（見 resourceURL）。
+	// 缺值時 service 一律拒絕（fail closed，決策 #138）。
 	Duration *float64 `json:"duration"`
 }
 
@@ -120,8 +120,7 @@ type Resource struct {
 // 呼叫端必須先用正規表示式驗證 publicID 的格式 ——
 // 不要讓任意字串進入 URL path。
 func (c *Client) GetResource(ctx context.Context, resourceType, publicID string) (*Resource, error) {
-	endpoint := fmt.Sprintf("%s/%s/resources/%s/upload/%s",
-		apiBase, c.CloudName, resourceType, url.PathEscape(publicID))
+	endpoint := resourceURL(c.CloudName, resourceType, publicID)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -148,6 +147,20 @@ func (c *Client) GetResource(ctx context.Context, resourceType, publicID string)
 		return nil, fmt.Errorf("cloudinary: decode resource: %w", err)
 	}
 	return &r, nil
+}
+
+// resourceURL 組出 Admin API 查詢單一資源的網址。
+//
+// 影片要加 media_metadata=true（決策 #171，P5-4 實測）：預設回應沒有 duration，
+// 加上之後最上層才會出現 "duration"。仍然是同一次呼叫，不多佔 Admin API 額度。
+// 圖片不加：它會多帶回一整包 EXIF 之類的 metadata，用不到。
+func resourceURL(cloudName, resourceType, publicID string) string {
+	u := fmt.Sprintf("%s/%s/resources/%s/upload/%s",
+		apiBase, cloudName, resourceType, url.PathEscape(publicID))
+	if resourceType == "video" {
+		u += "?media_metadata=true"
+	}
+	return u
 }
 
 // Destroy 刪除資源（決策 #140）。走 Upload API，不佔 Admin API 的每小時額度。

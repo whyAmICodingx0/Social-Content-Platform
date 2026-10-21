@@ -34,6 +34,12 @@ const contentHtml = computed(() =>
   post.value ? renderMarkdown(post.value.content) : ''
 )
 
+// P5-4：影片附件。Post Detail 的 media 含圖片與影片，這裡只取影片（決策 #133）。
+// 圖片不需要另外渲染——它們已經在 Markdown 裡。
+const videos = computed(() =>
+  (post.value?.media ?? []).filter((m) => m.purpose === 'post_video')
+)
+
 const router = useRouter()
 const auth = useAuthStore()
 
@@ -161,6 +167,27 @@ watch(() => [route.params.username, route.params.slug], load, { immediate: true 
         絕不可改成直接綁未消毒的字串。
       -->
       <div class="prose" v-html="contentHtml"></div>
+
+      <!--
+        P5-4：影片附件（決策 #110：影片不進 Markdown，由 Vue 直接渲染，不放寬 DOMPurify）。
+        ⚠️ preload="none" 不可拿掉（決策 #169）：沒有它，瀏覽器一打開文章就會開始下載影片，
+           每次瀏覽都在消耗 Cloudinary 的流量額度——而畫面上完全看不出來。
+        width / height 屬性讓瀏覽器在影片載入前就知道比例，先把位置留好，版面不會跳動。
+      -->
+      <section v-if="videos.length" class="post__videos">
+        <video
+          v-for="v in videos"
+          :key="v.id"
+          class="post__video"
+          :src="v.url"
+          :poster="v.thumbnail_url || undefined"
+          :width="v.width || undefined"
+          :height="v.height || undefined"
+          controls
+          preload="none"
+          playsinline
+        ></video>
+      </section>
 
       <!-- 草稿不顯示留言區（後端一律 404，決策 #43） -->
       <CommentSection
@@ -378,5 +405,19 @@ watch(() => [route.params.username, route.params.slug], load, { immediate: true 
 .post__comment-count {
   font-size: var(--text-sm);
   color: var(--color-text-muted);
+}
+
+/* ---------- P5-4：影片附件 ---------- */
+.post__videos {
+  margin: var(--space-8) 0;
+}
+
+/* width: 100% + height: auto：寬度填滿內容欄，高度依 width/height 屬性的比例自動算出 */
+.post__video {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  background: #000; /* 封面載入前的底色 */
 }
 </style>

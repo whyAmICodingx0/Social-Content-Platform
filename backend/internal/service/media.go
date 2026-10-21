@@ -69,7 +69,9 @@ var purposeSpecs = map[string]purposeSpec{
 		tag: "pv", preset: "inkwell_post_video", resourceType: "video",
 		maxBytes: 30 << 20, formats: videoFormats,
 		transformation: "f_mp4,q_auto", ext: "mp4",
-		thumbTransformation: "so_1,c_limit,w_800,f_jpg,q_auto",
+		// 封面取影片 10% 處的畫面（決策 #172）。原本的 so_1（第 1 秒）遇到短於 1 秒的影片會超出範圍；
+		// 百分比對任何長度都有效，而且通常比第 1 秒更不容易是黑畫面。
+		thumbTransformation: "so_10p,c_limit,w_800,f_jpg,q_auto",
 		maxDuration:         60,
 	},
 }

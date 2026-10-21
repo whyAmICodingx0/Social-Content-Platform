@@ -2,13 +2,14 @@ import { ref, computed } from 'vue'
 import { ApiError } from '../api/client'
 import { mediaApi, uploadToCloudinary, CloudinaryUploadError } from '../api/media'
 import { compressImage, CompressError } from '../utils/compressImage'
+import { checkVideo, VideoCheckError } from '../utils/checkVideo'
 
 /**
  * 一次上傳的完整流程（P5-0 §4.1）：
  *
- *   compressing → signing → uploading → reporting → done
- *        ↘           ↘          ↘            ↘
- *                        error（可能可以重試）
+ *   compressing（圖片）/ checking（影片）→ signing → uploading → reporting → done
+ *                 ↘                           ↘          ↘            ↘
+ *                                        error（可能可以重試）
  *
  * 重試時「從失敗的那一步接著做」，已完成的步驟不重做（決策 #149）：
  *   - 壓縮好的 blob 保留
@@ -23,15 +24,16 @@ import { compressImage, CompressError } from '../utils/compressImage'
  */
 
 const PURPOSES = {
-  avatar: { maxEdge: 512 },
-  post_image: { maxEdge: 1600 },
-  // post_video：P5-4
+  avatar: { kind: 'image', maxEdge: 512 },
+  post_image: { kind: 'image', maxEdge: 1600 },
+  // P5-4：影片不壓縮、上傳原檔；30MB 在慢速網路上可能要好幾分鐘，所以逾時放寬到 10 分鐘
+  post_video: { kind: 'video', timeoutMs: 10 * 60 * 1000 },
 }
 
 // Cloudinary 的簽章自 timestamp 起 1 小時有效（決策 #136），保留 10 分鐘餘裕
 const TICKET_REUSE_MS = 50 * 60 * 1000
 
-const BUSY_STAGES = ['compressing', 'signing', 'uploading', 'reporting']
+const BUSY_STAGES = ['compressing', 'checking', 'signing', 'uploading', 'reporting']
 
 export function useMediaUpload(purpose) {
   const spec = PURPOSES[purpose]
@@ -39,7 +41,7 @@ export function useMediaUpload(purpose) {
     throw new Error(`useMediaUpload: unsupported purpose "${purpose}"`)
   }
 
-  const stage = ref('idle') // idle | compressing | signing | uploading | reporting | done | error
+  const stage = ref('idle') // idle | compressing | checking | signing | uploading | reporting | done | error
   const progress = ref(0) // 0 ~ 1，只在 uploading 時有意義
   const error = ref(null) // { message, retryable }
   const media = ref(null) // 成功後的 Media shape
@@ -79,13 +81,23 @@ export function useMediaUpload(purpose) {
 
     try {
       if (!blob) {
-        stage.value = step = 'compressing'
-        const out = await compressImage(file, spec.maxEdge)
-        blob = out.blob
-        if (import.meta.env.DEV) {
-          console.info(
-            `[upload] ${purpose}: ${file.size} B → ${blob.size} B, ${out.width}×${out.height}`,
-          )
+        if (spec.kind === 'image') {
+          stage.value = step = 'compressing'
+          const out = await compressImage(file, spec.maxEdge)
+          blob = out.blob
+          if (import.meta.env.DEV) {
+            console.info(
+              `[upload] ${purpose}: ${file.size} B → ${blob.size} B, ${out.width}×${out.height}`,
+            )
+          }
+        } else {
+          // 影片：檢查通過就直接上傳原檔（決策 #167）
+          stage.value = step = 'checking'
+          const { duration } = await checkVideo(file)
+          blob = file
+          if (import.meta.env.DEV) {
+            console.info(`[upload] ${purpose}: ${file.size} B, duration ${duration ?? 'unknown'}`)
+          }
         }
       }
 
@@ -109,6 +121,9 @@ export function useMediaUpload(purpose) {
           onProgress: (ratio) => {
             progress.value = ratio
           },
+          // 影片保留原檔名（只影響 Media Library 的顯示）；圖片一律是壓縮後的 JPEG
+          fileName: spec.kind === 'video' ? file.name : 'upload.jpg',
+          timeoutMs: spec.timeoutMs,
         })
         if (import.meta.env.DEV && uploaded.existing) {
           console.info('[upload] existing: true（同一個簽章重傳，沒有產生新檔案）')
@@ -135,7 +150,7 @@ export function useMediaUpload(purpose) {
 }
 
 function describeError(err, step) {
-  if (err instanceof CompressError) {
+  if (err instanceof CompressError || err instanceof VideoCheckError) {
     return { message: err.message, retryable: false }
   }
   if (err instanceof CloudinaryUploadError) {

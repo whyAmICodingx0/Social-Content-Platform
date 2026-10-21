@@ -8,7 +8,7 @@ import { renderMarkdown } from '../utils/markdown'
 import TagInput from '../components/TagInput.vue'
 import { setTitle } from '../utils/title'
 import LoadingState from '../components/LoadingState.vue'
-import ImageUploadButton from '../components/ImageUploadButton.vue'
+import MediaUploadButton from '../components/MediaUploadButton.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -34,15 +34,17 @@ const textareaEl = ref(null) // 插入圖片時要讀游標位置
 
 /* ---------- P5-3：文章媒體 ---------- */
 // 這篇文章「可能」擁有的媒體：載入時從 Post Detail 的 media 來，上傳成功再加進來。
-// 只存畫面需要的三個欄位。
-const mediaItems = ref([]) // [{ id, purpose, url }]
+// 只存畫面需要的欄位（thumbnail_url、duration 是 P5-4 顯示影片附件用的）。
+const mediaItems = ref([]) // [{ id, purpose, url, thumbnail_url, duration }]
 
 // 編輯模式下，回應裡真的有 media 陣列才算「知道目前的媒體」。
 // 不知道的話存檔時就不送 media_ids——否則等於送出空陣列，會把既有關聯全部清掉（決策 #162）。
 const mediaKnown = ref(true)
 
 const imageBusy = ref(false)
+const videoBusy = ref(false) // P5-4
 const MAX_MEDIA = 10 // 與後端相同（決策 #122）；前端只是提示，後端才是權威
+const MAX_VIDEOS = 1
 
 // 存檔時實際送出的媒體（決策 #161）：
 //   - 圖片：網址還在內文裡才算。使用者刪掉 ![](...) 之後，關聯也跟著拿掉
@@ -52,22 +54,38 @@ const activeMedia = computed(() =>
 )
 const mediaFull = computed(() => activeMedia.value.length >= MAX_MEDIA)
 
+// P5-4：影片附件（不在內文裡，存在 mediaItems 就算）
+const videoItems = computed(() => activeMedia.value.filter((m) => m.purpose === 'post_video'))
+const videoFull = computed(() => videoItems.value.length >= MAX_VIDEOS)
+
+// 不知道目前有哪些媒體時（決策 #162），也不允許新增：
+// 存檔不會送 media_ids，新增的媒體會「看起來加上了、其實沒存」（決策 #168）
+const canAddMedia = computed(() => mediaKnown.value && !saving.value)
+
 const previewHtml = computed(() => renderMarkdown(content.value))
 
-// 圖片上傳中不能存檔：圖片會在上傳完成後才插進內文，先存的話那張圖就漏掉了
+// 上傳中不能存檔：圖片要上傳完才插進內文、影片要上傳完才列為附件，先存的話就漏掉了
 const canSave = computed(
   () =>
     title.value.trim() !== '' &&
     content.value.trim() !== '' &&
     !saving.value &&
-    !imageBusy.value
+    !imageBusy.value &&
+    !videoBusy.value
 )
 
 /* ---------- 未儲存變更的偵測 ---------- */
 // 用「快照比對」而不是 watch 設旗標：載入既有文章時不會被誤判成已修改。
 const snapshot = ref('')
+// P5-4：加入媒體 id。附加或移除影片不會改到內文，不放進快照的話離開時不會警告
 function snapshotOf() {
-  return JSON.stringify([title.value, content.value, tags.value, status.value])
+  return JSON.stringify([
+    title.value,
+    content.value,
+    tags.value,
+    status.value,
+    activeMedia.value.map((m) => m.id),
+  ])
 }
 const dirty = computed(() => snapshotOf() !== snapshot.value)
 snapshot.value = snapshotOf()
@@ -100,9 +118,7 @@ async function loadPost() {
 
     // P5-3：Post Detail 的 media 含圖片與影片（決策 #133）
     mediaKnown.value = Array.isArray(p.media)
-    mediaItems.value = mediaKnown.value
-      ? p.media.map((m) => ({ id: m.id, purpose: m.purpose, url: m.url }))
-      : []
+    mediaItems.value = mediaKnown.value ? p.media.map(toMediaItem) : []
     setTitle(`編輯：${p.title}`)
     snapshot.value = snapshotOf() // 重設基準，載入不算「已修改」
   } catch (err) {
@@ -178,12 +194,43 @@ function handleSaveError(err) {
   }
 }
 
-/* ---------- P5-3：插入圖片 ---------- */
-function onImageUploaded(media, fileName) {
-  if (!mediaItems.value.some((m) => m.id === media.id)) {
-    mediaItems.value.push({ id: media.id, purpose: media.purpose, url: media.url })
+/* ---------- P5-3：插入圖片 / P5-4：附加影片 ---------- */
+function toMediaItem(m) {
+  return {
+    id: m.id,
+    purpose: m.purpose,
+    url: m.url,
+    thumbnail_url: m.thumbnail_url,
+    duration: m.duration,
   }
+}
+
+function addMediaItem(media) {
+  if (!mediaItems.value.some((m) => m.id === media.id)) {
+    mediaItems.value.push(toMediaItem(media))
+  }
+}
+
+function onImageUploaded(media, fileName) {
+  addMediaItem(media)
   insertAtCaret(`![${altFromFileName(fileName)}](${media.url})`)
+}
+
+// 影片是附件：只記下來，不插進內文（決策 #110）
+function onVideoUploaded(media) {
+  addMediaItem(media)
+}
+
+// 只用於影片。圖片要從內文刪掉 ![](...)，存檔時就會自動不送（決策 #161）
+function removeMedia(id) {
+  mediaItems.value = mediaItems.value.filter((m) => m.id !== id)
+}
+
+// 42.5 → "0:43"
+function formatDuration(seconds) {
+  if (typeof seconds !== 'number') return ''
+  const total = Math.round(seconds)
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
 }
 
 // 檔名當作預設的替代文字（alt）。去掉副檔名，以及會弄壞 Markdown 語法的字元。
@@ -293,8 +340,9 @@ watch(content, () => {
           >
             預覽
           </button>
-          <ImageUploadButton
-            :disabled="saving || mediaFull"
+          <MediaUploadButton
+            purpose="post_image"
+            :disabled="!canAddMedia || mediaFull"
             @uploaded="onImageUploaded"
             @busy="imageBusy = $event"
           />
@@ -320,6 +368,41 @@ watch(content, () => {
         </div>
 
         <p v-if="fieldErrors.content" class="field__error">{{ fieldErrors.content }}</p>
+      </div>
+
+      <!-- P5-4：影片附件。顯示在文章內文的下方 -->
+      <div class="field">
+        <div class="attach__header">
+          <span class="field__label attach__label">影片</span>
+          <MediaUploadButton
+            purpose="post_video"
+            :disabled="!canAddMedia || mediaFull || videoFull"
+            @uploaded="onVideoUploaded"
+            @busy="videoBusy = $event"
+          />
+        </div>
+
+        <ul v-if="videoItems.length" class="attach__list">
+          <li v-for="v in videoItems" :key="v.id" class="attach__item">
+            <img v-if="v.thumbnail_url" :src="v.thumbnail_url" alt="" class="attach__thumb" />
+            <span class="attach__meta">{{ formatDuration(v.duration) }}</span>
+            <button
+              type="button"
+              class="attach__remove"
+              :disabled="saving"
+              @click="removeMedia(v.id)"
+            >
+              移除
+            </button>
+          </li>
+        </ul>
+        <p v-else class="field__hint">
+          每篇最多 1 部影片（MP4、WebM、MOV，60 秒、30MB 以內），會顯示在文章內文的下方。
+        </p>
+        <p v-if="!mediaKnown" class="field__error">
+          無法讀取這篇文章目前的媒體，暫時不能新增圖片或影片。重新整理頁面再試一次。
+        </p>
+        <p v-if="fieldErrors.media_ids" class="field__error">{{ fieldErrors.media_ids }}</p>
       </div>
 
       <!-- 標籤 -->
@@ -406,6 +489,74 @@ watch(content, () => {
 
 /* P5-3：已使用的媒體數，例如「3 / 10」 */
 .editor__media-count {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+/* ---------- P5-4：影片附件 ---------- */
+
+/* 標題「影片」和「附加影片」按鈕排在同一列 */
+.attach__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+/* .field__label 原本有 margin-bottom，放在同一列時要拿掉，否則文字會往上偏 */
+.attach__label {
+  margin-bottom: 0;
+}
+
+.attach__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* 每一筆附件：縮圖、長度、移除按鈕排成一列 */
+.attach__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+/* 固定 16:9 的縮圖框；object-fit: cover 讓直式影片的封面裁切填滿，而不是被壓扁 */
+.attach__thumb {
+  width: 96px;
+  height: 54px;
+  object-fit: cover;
+  border-radius: 3px;
+  background: var(--color-border);
+}
+
+.attach__meta {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+/* margin-left: auto 把移除按鈕推到最右邊 */
+.attach__remove {
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.attach__remove:hover:not(:disabled) {
+  color: var(--color-danger);
+}
+
+.attach__remove:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.field__hint {
   font-size: var(--text-sm);
   color: var(--color-text-muted);
 }
