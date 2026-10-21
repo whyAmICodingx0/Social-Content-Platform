@@ -23,9 +23,10 @@ type UserHandler struct {
 // patchMeRequest 只定義可以改的欄位。
 // username 與 email 故意不出現 → BindStrict 會當成 unknown field 擋下（決策 #24）。
 type patchMeRequest struct {
-	DisplayName *string `json:"display_name"`
-	Bio         *string `json:"bio"`
-	AvatarURL   *string `json:"avatar_url"`
+	DisplayName   *string `json:"display_name"`
+	Bio           *string `json:"bio"`
+	AvatarURL     *string `json:"avatar_url"`
+	AvatarMediaID *string `json:"avatar_media_id"` // P5-2：與 avatar_url 互斥（P5-0 §5.3 規則 4）
 }
 
 func (h *UserHandler) PatchMe(c *gin.Context) {
@@ -41,9 +42,10 @@ func (h *UserHandler) PatchMe(c *gin.Context) {
 	}
 
 	updated, err := h.Svc.UpdateProfile(c.Request.Context(), u.ID, service.UpdateProfileInput{
-		DisplayName: req.DisplayName,
-		Bio:         req.Bio,
-		AvatarURL:   req.AvatarURL,
+		DisplayName:   req.DisplayName,
+		Bio:           req.Bio,
+		AvatarURL:     req.AvatarURL,
+		AvatarMediaID: req.AvatarMediaID,
 	})
 	if err != nil {
 		var vErr *service.ValidationError
@@ -54,7 +56,7 @@ func (h *UserHandler) PatchMe(c *gin.Context) {
 		case errors.Is(err, repository.ErrNotFound):
 			api.Fail(c, http.StatusUnauthorized, api.CodeUnauthenticated, "Authentication required")
 		default:
-			log.Printf("<handler>.<method>: unexpected error: %v", err)
+			log.Printf("user handler: PatchMe: unexpected error: %v", err)
 			api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
 				"Service temporarily unavailable")
 		}
@@ -79,6 +81,7 @@ func (h *UserHandler) GetPublicProfile(c *gin.Context) {
 		return
 	}
 	if err != nil {
+		log.Printf("user handler: GetPublicProfile: unexpected error: %v", err) // 決策 #80
 		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
 			"Service temporarily unavailable")
 		return
@@ -87,6 +90,7 @@ func (h *UserHandler) GetPublicProfile(c *gin.Context) {
 	// P2-3：追蹤數字與狀態。viewerID 為 nil 時 followed_by_me 為 false（決策 #48）
 	extras, err := h.Follows.GetProfileExtras(c.Request.Context(), u.ID, viewerID(c))
 	if err != nil {
+		log.Printf("user handler: GetPublicProfile: profile extras: %v", err) // 決策 #80
 		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
 			"Service temporarily unavailable")
 		return

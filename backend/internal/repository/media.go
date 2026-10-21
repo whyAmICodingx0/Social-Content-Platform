@@ -90,3 +90,13 @@ func (r *MediaRepository) GetByAssetID(ctx context.Context, assetID string) (*Me
 	const q = `SELECT ` + mediaColumns + ` FROM media WHERE provider_asset_id = $1`
 	return scanMedia(r.pool.QueryRow(ctx, q, assetID))
 }
+
+// GetByID 以 media.id 查詢（P5-2：驗證 avatar_media_id）。
+//
+// ⚠️ 呼叫端必須先確認 id 是合法的 UUID。否則 PostgreSQL 會回 22P02
+// （invalid input syntax for type uuid），那會落到 handler 的 default 分支變成 503，
+// 而不是「使用者輸入錯誤」該有的 400。
+func (r *MediaRepository) GetByID(ctx context.Context, id string) (*Media, error) {
+	const q = `SELECT ` + mediaColumns + ` FROM media WHERE id = $1`
+	return scanMedia(r.pool.QueryRow(ctx, q, id))
+}

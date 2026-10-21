@@ -79,7 +79,10 @@ func main() {
 		Notifier: &ws.Notifier{Hub: hub},
 	}
 
-	userSvc := &service.UserService{Users: userRepo}
+	userSvc := &service.UserService{
+		Users: userRepo,
+		Media: repository.NewMediaRepository(pool), // P5-2：驗證 avatar_media_id
+	}
 	userHandler := &handler.UserHandler{Svc: userSvc, Follows: followSvc}
 
 	postRepo := repository.NewPostRepository(pool)

@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { ApiError } from '../api/client'
 import UserAvatar from '../components/UserAvatar.vue'
+import AvatarUploader from '../components/AvatarUploader.vue'
 
 const auth = useAuthStore()
 
@@ -14,6 +15,9 @@ const saving = ref(false)
 const saved = ref(false)
 const formError = ref(null)
 const fieldErrors = ref({})
+
+// P5-2：頭像上傳／套用進行中（決策 #152）
+const avatarBusy = ref(false)
 
 const MAX_BIO = 500
 
@@ -28,7 +32,8 @@ onMounted(() => {
 const bioLength = computed(() => [...bio.value].length)
 const bioOverflow = computed(() => bioLength.value > MAX_BIO)
 
-const canSave = computed(() => !saving.value && !bioOverflow.value)
+// 頭像處理中不能存表單：表單會送出 avatar_url，可能蓋掉剛套用的頭像（決策 #152）
+const canSave = computed(() => !saving.value && !bioOverflow.value && !avatarBusy.value)
 
 async function save() {
   if (!canSave.value) return
@@ -42,6 +47,10 @@ async function save() {
     // ★ 只送三個允許的欄位。
     //   username 與 email 是唯讀，放進 payload 會被後端回 400（決策 #24）。
     //   空字串語意（spec 6.1.1）：bio / avatar_url = 清空；display_name = 不變更
+    //
+    // ★ P5-2：avatar_url 照樣每次都送。
+    //   送出與目前相同的網址時，後端不會清掉 avatar_media_id（決策 #147）——
+    //   這條規則由後端保證，前端不需要另外比對「有沒有改」。
     await auth.updateProfile({
       display_name: displayName.value.trim(),
       bio: bio.value.trim(),
@@ -67,6 +76,12 @@ function reset() {
   saved.value = false
   formError.value = null
   fieldErrors.value = {}
+}
+
+// 上傳的頭像已套用：把網址欄位同步成新網址。
+// 不同步的話，下一次「儲存變更」會把舊網址送回去，把頭像換回舊的（決策 #152）。
+function onAvatarApplied(user) {
+  avatarUrl.value = user.avatar_url ?? ''
 }
 </script>
 
@@ -121,20 +136,33 @@ function reset() {
       </p>
     </div>
 
+    <!-- 頭像：上傳（立即生效）或貼網址（按儲存才生效） -->
     <div class="field">
-      <label class="field__label" for="avatar">頭像網址</label>
+      <span class="field__label">頭像</span>
       <div class="avatar-row">
         <UserAvatar :src="avatarUrl" :name="displayName || auth.user.username" :size="56" />
-        <input
-          id="avatar"
-          v-model="avatarUrl"
-          class="field__input"
-          type="url"
-          placeholder="https://..."
+        <AvatarUploader
+          :disabled="saving"
+          @applied="onAvatarApplied"
+          @busy="avatarBusy = $event"
         />
       </div>
+      <p class="field__hint">
+        JPG、PNG、WebP，會自動縮小後上傳。上傳完成立即生效，不需要按「儲存變更」。
+      </p>
+
+      <label class="field__label field__label--sub" for="avatar">或貼上圖片網址</label>
+      <input
+        id="avatar"
+        v-model="avatarUrl"
+        class="field__input"
+        type="url"
+        placeholder="https://..."
+      />
       <p v-if="fieldErrors.avatar_url" class="field__error">{{ fieldErrors.avatar_url }}</p>
-      <p v-else class="field__hint">貼上圖片網址即可，左側會即時預覽。留空即清除。</p>
+      <p v-else class="field__hint">
+        貼上網址後按「儲存變更」，上面的頭像會即時預覽。清空並儲存即移除頭像。
+      </p>
     </div>
 
     <p v-if="formError" class="form__error">{{ formError }}</p>
@@ -144,7 +172,7 @@ function reset() {
       <button class="btn btn--primary" :disabled="!canSave" @click="save">
         {{ saving ? '儲存中…' : '儲存變更' }}
       </button>
-      <button class="btn btn--ghost" :disabled="saving" @click="reset">還原</button>
+      <button class="btn btn--ghost" :disabled="saving || avatarBusy" @click="reset">還原</button>
       <RouterLink :to="`/@${auth.user.username}`" class="btn btn--ghost">
         看看我的個人頁
       </RouterLink>
@@ -205,6 +233,12 @@ function reset() {
   font-weight: 600;
 }
 
+/* P5-2：「或貼上圖片網址」是頭像區塊裡的次標題，和上面的提示隔開一點 */
+.field__label--sub {
+  margin-top: var(--space-4);
+  font-weight: 500;
+}
+
 .field__input {
   width: 100%;
   padding: var(--space-3);
@@ -224,10 +258,11 @@ function reset() {
   line-height: var(--leading-normal);
 }
 
+/* P5-2：頭像在左、上傳元件在右；元件的狀態訊息較長時，頭像要對齊上緣 */
 .avatar-row {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
+  align-items: flex-start;
+  gap: var(--space-4);
 }
 
 .field__hint {
@@ -276,6 +311,7 @@ function reset() {
   cursor: not-allowed;
 }
 
+/* 你原本的手機版樣式（原封不動保留） */
 @media (max-width: 640px) {
   .settings__actions {
     flex-wrap: wrap;
