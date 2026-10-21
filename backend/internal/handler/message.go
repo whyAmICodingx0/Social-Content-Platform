@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -111,6 +112,7 @@ func (h *MessageHandler) fail(c *gin.Context, err error) {
 		// 對話不存在 / 非參與者 / 對方已軟刪，一律 404（決策 #73）
 		api.Fail(c, http.StatusNotFound, api.CodeNotFound, "not found")
 	default:
+		log.Printf("handler: unexpected error: %v", err)
 		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
 			"Service temporarily unavailable")
 	}
