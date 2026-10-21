@@ -56,6 +56,10 @@ type Post struct {
 	LikeCount    int
 	CommentCount int
 	LikedByMe    bool
+
+	// P5-3：文章擁有的媒體，依 post_media.position 排序（決策 #133）。
+	// 只有 Post Detail 會填（Create / Update / GetByAuthorAndSlug）；列表不填。
+	Media []*Media
 }
 
 type PostRepository struct {
@@ -75,9 +79,12 @@ type CreatePostParams struct {
 	Status      string
 	PublishedAt *time.Time
 	Tags        []string
+
+	// MediaIDs：service 已驗證並去重；陣列順序就是 position（決策 #133）
+	MediaIDs []string
 }
 
-// Create 建立文章 + 標籤，全部在同一個 transaction（決策 #28）。
+// Create 建立文章 + 標籤 + 媒體關聯，全部在同一個 transaction（決策 #28、P5-0 §5.4）。
 // slug 衝突回 ErrSlugTaken，由 service 換候選後重試**整個** transaction
 // —— 交易 abort 後不能在原交易內重來（spec 7.6 第 3 步）。
 func (r *PostRepository) Create(ctx context.Context, p CreatePostParams) (*Post, error) {
@@ -109,6 +116,16 @@ func (r *PostRepository) Create(ctx context.Context, p CreatePostParams) (*Post,
 	}
 	post.Tags = p.Tags
 
+	// P5-3：新文章沒有既有關聯，直接插入
+	if err := insertPostMedia(ctx, tx, post.ID, p.MediaIDs); err != nil {
+		return nil, err
+	}
+	media, err := loadPostMedia(ctx, tx, post.ID)
+	if err != nil {
+		return nil, err
+	}
+	post.Media = media
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -123,9 +140,13 @@ type UpdatePostParams struct {
 	PublishedAt *time.Time // 僅在首次發布時帶值
 	Tags        []string   // nil = 不動；空 slice = 清空
 	ReplaceTags bool
+
+	// P5-3：語意同 Tags（P5-0 §5.4）。ReplaceMedia=false → 不動；true → 整組替換（空 = 清空）
+	MediaIDs     []string
+	ReplaceMedia bool
 }
 
-// Update 更新文章 + （可選）重建標籤，同一 transaction。
+// Update 更新文章 + （可選）重建標籤與媒體關聯，同一 transaction。
 // 呼叫端必須先確認作者身分（權限判斷屬 service 職責）。
 func (r *PostRepository) Update(ctx context.Context, postID string, p UpdatePostParams) (*Post, error) {
 	tx, err := r.pool.Begin(ctx)
@@ -179,6 +200,21 @@ func (r *PostRepository) Update(ctx context.Context, postID string, p UpdatePost
 		}
 		post.Tags = tags
 	}
+
+	// P5-3：有給 media_ids 才整組替換；回應一律帶出目前的關聯（Post Detail shape）
+	if p.ReplaceMedia {
+		if _, err := tx.Exec(ctx, `DELETE FROM post_media WHERE post_id = $1`, post.ID); err != nil {
+			return nil, err
+		}
+		if err := insertPostMedia(ctx, tx, post.ID, p.MediaIDs); err != nil {
+			return nil, err
+		}
+	}
+	media, err := loadPostMedia(ctx, tx, post.ID)
+	if err != nil {
+		return nil, err
+	}
+	post.Media = media
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -262,10 +298,64 @@ func (r *PostRepository) GetByAuthorAndSlug(ctx context.Context, username, slug 
 		return nil, err
 	}
 	p.Tags = tags
+
+	// P5-3：Post Detail 回傳全部媒體（含圖片，決策 #133）
+	media, err := loadPostMedia(ctx, r.pool, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	p.Media = media
 	return &p, nil
 }
 
 // ---------- 內部工具 ----------
+
+// postMediaQuerier：pgx.Tx 與 *pgxpool.Pool 都有這個方法，
+// 讓 loadPostMedia 在交易內外都能用（不必像 loadTags / loadTagsPool 寫兩份）。
+type postMediaQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+// insertPostMedia：一句 SQL 插入整組關聯。
+// WITH ORDINALITY 讓 unnest 同時給出陣列索引（從 1 開始），減 1 就是 position。
+func insertPostMedia(ctx context.Context, tx pgx.Tx, postID string, mediaIDs []string) error {
+	if len(mediaIDs) == 0 {
+		return nil
+	}
+	const q = `
+		INSERT INTO post_media (post_id, media_id, position)
+		SELECT $1, t.media_id, (t.ord - 1)::int
+		FROM unnest($2::uuid[]) WITH ORDINALITY AS t(media_id, ord)`
+	_, err := tx.Exec(ctx, q, postID, mediaIDs)
+	return err
+}
+
+// mediaColumns 定義在 media.go。post_media 沒有與 media 同名的欄位，
+// 所以 JOIN 之後不加表名前綴也不會有歧義。
+const selectPostMedia = `
+	SELECT ` + mediaColumns + `
+	FROM media
+	JOIN post_media ON post_media.media_id = media.id
+	WHERE post_media.post_id = $1
+	ORDER BY post_media.position ASC, media.id ASC`
+
+func loadPostMedia(ctx context.Context, q postMediaQuerier, postID string) ([]*Media, error) {
+	rows, err := q.Query(ctx, selectPostMedia, postID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []*Media{}
+	for rows.Next() {
+		m, err := scanMedia(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
 
 // replaceTags：整組取代語意（spec 7.5）——先清空既有關聯，再 upsert 並重建。
 // tags upsert 用 ON CONFLICT DO UPDATE ... RETURNING（決策 #28）：

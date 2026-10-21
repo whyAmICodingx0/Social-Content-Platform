@@ -100,3 +100,27 @@ func (r *MediaRepository) GetByID(ctx context.Context, id string) (*Media, error
 	const q = `SELECT ` + mediaColumns + ` FROM media WHERE id = $1`
 	return scanMedia(r.pool.QueryRow(ctx, q, id))
 }
+
+// GetByIDs 一次查多筆（P5-3：驗證 media_ids）。找不到的 id 不會出現在結果裡，
+// 由呼叫端比對數量與內容。
+//
+// ⚠️ 同 GetByID：每個 id 都必須先確認是合法的 UUID。
+func (r *MediaRepository) GetByIDs(ctx context.Context, ids []string) ([]*Media, error) {
+	const q = `SELECT ` + mediaColumns + ` FROM media WHERE id = ANY($1::uuid[])`
+
+	rows, err := r.pool.Query(ctx, q, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []*Media{}
+	for rows.Next() {
+		m, err := scanMedia(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}

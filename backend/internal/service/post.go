@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -22,13 +23,15 @@ var (
 
 type PostService struct {
 	Posts *repository.PostRepository
+	Media *repository.MediaRepository // P5-3：驗證 media_ids
 }
 
 type CreatePostInput struct {
-	Title   string
-	Content string
-	Status  *string
-	Tags    []string
+	Title    string
+	Content  string
+	Status   *string
+	Tags     []string
+	MediaIDs []string // P5-3：nil 或空 = 沒有媒體
 }
 
 func (s *PostService) Create(ctx context.Context, authorID string, in CreatePostInput) (*repository.Post, error) {
@@ -49,6 +52,12 @@ func (s *PostService) Create(ctx context.Context, authorID string, in CreatePost
 	}
 
 	tags, err := normalizeTags(in.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	// P5-3：放在所有不需要資料庫的檢查之後。只驗一次，不放進下面的 slug 重試迴圈
+	mediaIDs, err := s.resolvePostMedia(ctx, authorID, in.MediaIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +88,7 @@ func (s *PostService) Create(ctx context.Context, authorID string, in CreatePost
 			Status:      status,
 			PublishedAt: publishedAt,
 			Tags:        tags,
+			MediaIDs:    mediaIDs,
 		})
 		if err == nil {
 			return post, nil
@@ -97,6 +107,10 @@ type UpdatePostInput struct {
 	Status  *string
 	Tags    []string
 	HasTags bool
+
+	// P5-3：語意同 Tags / HasTags（P5-0 §5.4）
+	MediaIDs []string
+	HasMedia bool
 }
 
 func (s *PostService) Update(ctx context.Context, actorID, postID string, in UpdatePostInput) (*repository.Post, error) {
@@ -148,6 +162,16 @@ func (s *PostService) Update(ctx context.Context, actorID, postID string, in Upd
 		p.Tags = tags
 	}
 
+	// P5-3：作者身分已在上面確認，所以「媒體必須是本人的」等於「必須是文章作者的」
+	if in.HasMedia {
+		ids, err := s.resolvePostMedia(ctx, actorID, in.MediaIDs)
+		if err != nil {
+			return nil, err
+		}
+		p.ReplaceMedia = true
+		p.MediaIDs = ids
+	}
+
 	return s.Posts.Update(ctx, postID, p)
 }
 
@@ -178,7 +202,20 @@ func (s *PostService) GetForReader(ctx context.Context, username, slug string, v
 	return p, nil
 }
 
+// P5-3（決策 #160）：摘要裡不該出現圖片網址。
+//   - ![說明](網址) → 整段拿掉
+//   - [文字](網址)  → 只留文字
+//
+// 圖片要先處理：它的語法包含連結語法，先處理連結的話會留下「!說明」。
+var (
+	mdImagePattern = regexp.MustCompile(`!\[[^\]]*\]\([^)]*\)`)
+	mdLinkPattern  = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
+)
+
 func makeExcerpt(md string) string {
+	md = mdImagePattern.ReplaceAllString(md, " ")
+	md = mdLinkPattern.ReplaceAllString(md, "${1}")
+
 	replacer := strings.NewReplacer(
 		"#", "", "*", "", "_", "", "`", "", ">", "",
 		"[", "", "]", "", "\n", " ", "\r", " ",
@@ -202,7 +239,7 @@ type ListPostsInput struct {
 	Asc              bool
 	Limit            int
 	Offset           int
-	ViewerID         *string
+	ViewerID         *string // nil = 匿名（決策 #49）
 	FeedFor          *string
 	SearchPattern    *string
 	SearchQuery      *string

@@ -29,10 +29,11 @@ func viewerID(c *gin.Context) *string {
 // ---------- POST /api/v1/posts ----------
 
 type createPostRequest struct {
-	Title   string   `json:"title"`
-	Content string   `json:"content"`
-	Status  *string  `json:"status"`
-	Tags    []string `json:"tags"`
+	Title    string   `json:"title"`
+	Content  string   `json:"content"`
+	Status   *string  `json:"status"`
+	Tags     []string `json:"tags"`
+	MediaIDs []string `json:"media_ids"` // P5-3
 }
 
 func (h *PostHandler) Create(c *gin.Context) {
@@ -49,6 +50,7 @@ func (h *PostHandler) Create(c *gin.Context) {
 
 	post, err := h.Svc.Create(c.Request.Context(), u.ID, service.CreatePostInput{
 		Title: req.Title, Content: req.Content, Status: req.Status, Tags: req.Tags,
+		MediaIDs: req.MediaIDs,
 	})
 	if err != nil {
 		h.failPost(c, err)
@@ -77,10 +79,11 @@ func (h *PostHandler) GetBySlug(c *gin.Context) {
 // ---------- PATCH /api/v1/posts/:id ----------
 
 type updatePostRequest struct {
-	Title   *string  `json:"title"`
-	Content *string  `json:"content"`
-	Status  *string  `json:"status"`
-	Tags    []string `json:"tags"`
+	Title    *string  `json:"title"`
+	Content  *string  `json:"content"`
+	Status   *string  `json:"status"`
+	Tags     []string `json:"tags"`
+	MediaIDs []string `json:"media_ids"` // P5-3：沒給或 null = 不動；[] = 清空
 }
 
 func (h *PostHandler) Update(c *gin.Context) {
@@ -101,6 +104,9 @@ func (h *PostHandler) Update(c *gin.Context) {
 		Status:  req.Status,
 		Tags:    req.Tags,
 		HasTags: req.Tags != nil,
+		// 與 HasTags 相同的判斷：JSON 沒有這個欄位或給 null → nil；給 [] → 非 nil 的空 slice
+		MediaIDs: req.MediaIDs,
+		HasMedia: req.MediaIDs != nil,
 	})
 	if err != nil {
 		h.failPost(c, err)
@@ -217,6 +223,7 @@ func (h *PostHandler) Feed(c *gin.Context) {
 func (h *PostHandler) respondList(c *gin.Context, q api.PageQuery, in service.ListPostsInput) {
 	posts, total, err := h.Svc.List(c.Request.Context(), in)
 	if err != nil {
+		log.Printf("post handler: list: unexpected error: %v", err) // 決策 #80
 		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
 			"Service temporarily unavailable")
 		return
@@ -244,7 +251,7 @@ func (h *PostHandler) failPost(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrSlugExhausted):
 		api.Fail(c, http.StatusConflict, api.CodeSlugConflict, "could not generate a unique slug")
 	default:
-		log.Printf("<handler>.<method>: unexpected error: %v", err)
+		log.Printf("post handler: unexpected error: %v", err)
 		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
 			"Service temporarily unavailable")
 	}
@@ -279,10 +286,30 @@ func postDetailJSON(p *repository.Post) gin.H {
 		"like_count":    p.LikeCount,
 		"comment_count": p.CommentCount,
 		"liked_by_me":   p.LikedByMe,
+		"media":         postMediaListJSON(p.Media), // P5-3（決策 #133）
 	}
 }
 
-// postSummaryJSON：列表用（不含 content 與 updated_at）
+// postMediaListJSON：Post Detail 的 media（P5-0 §5.5）。
+// 回傳全部媒體（含圖片）並帶 purpose；前端自己過濾 post_video 來渲染附件（決策 #133）。
+// 與 handler/media.go 的 mediaJSON 不同：這裡不含 bytes 與 created_at。
+func postMediaListJSON(list []*repository.Media) []gin.H {
+	out := make([]gin.H, 0, len(list)) // nil 也輸出 []，前端不必判斷 null
+	for _, m := range list {
+		out = append(out, gin.H{
+			"id":            m.ID,
+			"purpose":       m.Purpose,
+			"url":           m.URL,
+			"thumbnail_url": m.ThumbnailURL,
+			"width":         m.Width,
+			"height":        m.Height,
+			"duration":      m.Duration,
+		})
+	}
+	return out
+}
+
+// postSummaryJSON：列表用（不含 content、updated_at 與 media）
 func postSummaryJSON(p *repository.Post) gin.H {
 	tags := p.Tags
 	if tags == nil {

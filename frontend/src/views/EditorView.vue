@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { postsApi } from '../api'
 import { ApiError } from '../api/client'
@@ -8,6 +8,7 @@ import { renderMarkdown } from '../utils/markdown'
 import TagInput from '../components/TagInput.vue'
 import { setTitle } from '../utils/title'
 import LoadingState from '../components/LoadingState.vue'
+import ImageUploadButton from '../components/ImageUploadButton.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -29,11 +30,37 @@ const loadError = ref(null)
 const formError = ref(null)
 const fieldErrors = ref({})
 const tab = ref('write') // 'write' | 'preview'
+const textareaEl = ref(null) // 插入圖片時要讀游標位置
+
+/* ---------- P5-3：文章媒體 ---------- */
+// 這篇文章「可能」擁有的媒體：載入時從 Post Detail 的 media 來，上傳成功再加進來。
+// 只存畫面需要的三個欄位。
+const mediaItems = ref([]) // [{ id, purpose, url }]
+
+// 編輯模式下，回應裡真的有 media 陣列才算「知道目前的媒體」。
+// 不知道的話存檔時就不送 media_ids——否則等於送出空陣列，會把既有關聯全部清掉（決策 #162）。
+const mediaKnown = ref(true)
+
+const imageBusy = ref(false)
+const MAX_MEDIA = 10 // 與後端相同（決策 #122）；前端只是提示，後端才是權威
+
+// 存檔時實際送出的媒體（決策 #161）：
+//   - 圖片：網址還在內文裡才算。使用者刪掉 ![](...) 之後，關聯也跟著拿掉
+//   - 影片（P5-4）：是附件、不在內文裡，一律保留
+const activeMedia = computed(() =>
+  mediaItems.value.filter((m) => m.purpose !== 'post_image' || content.value.includes(m.url))
+)
+const mediaFull = computed(() => activeMedia.value.length >= MAX_MEDIA)
 
 const previewHtml = computed(() => renderMarkdown(content.value))
 
+// 圖片上傳中不能存檔：圖片會在上傳完成後才插進內文，先存的話那張圖就漏掉了
 const canSave = computed(
-  () => title.value.trim() !== '' && content.value.trim() !== '' && !saving.value
+  () =>
+    title.value.trim() !== '' &&
+    content.value.trim() !== '' &&
+    !saving.value &&
+    !imageBusy.value
 )
 
 /* ---------- 未儲存變更的偵測 ---------- */
@@ -70,6 +97,12 @@ async function loadPost() {
     content.value = p.content
     tags.value = [...p.tags]
     status.value = p.status
+
+    // P5-3：Post Detail 的 media 含圖片與影片（決策 #133）
+    mediaKnown.value = Array.isArray(p.media)
+    mediaItems.value = mediaKnown.value
+      ? p.media.map((m) => ({ id: m.id, purpose: m.purpose, url: m.url }))
+      : []
     setTitle(`編輯：${p.title}`)
     snapshot.value = snapshotOf() // 重設基準，載入不算「已修改」
   } catch (err) {
@@ -97,6 +130,10 @@ async function save(nextStatus) {
     content: content.value,
     status: nextStatus,
     tags: tags.value,
+  }
+  // P5-3：每次都送完整的一組（PATCH 是整組替換，P5-0 §5.4）
+  if (mediaKnown.value) {
+    payload.media_ids = activeMedia.value.map((m) => m.id)
   }
 
   try {
@@ -139,6 +176,62 @@ function handleSaveError(err) {
     default:
       formError.value = err.message
   }
+}
+
+/* ---------- P5-3：插入圖片 ---------- */
+function onImageUploaded(media, fileName) {
+  if (!mediaItems.value.some((m) => m.id === media.id)) {
+    mediaItems.value.push({ id: media.id, purpose: media.purpose, url: media.url })
+  }
+  insertAtCaret(`![${altFromFileName(fileName)}](${media.url})`)
+}
+
+// 檔名當作預設的替代文字（alt）。去掉副檔名，以及會弄壞 Markdown 語法的字元。
+// 使用者之後可以自己改成更好的描述。
+function altFromFileName(name) {
+  const base = (name || '').replace(/\.[^.]+$/, '')
+  const cleaned = base
+    .replace(/[[\]\\\r\n]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 100)
+  return cleaned || '圖片'
+}
+
+// 插在「上傳完成那一刻」的游標位置（決策 #163）。
+// textarea 失去焦點後仍會記得 selectionStart，所以按了按鈕也拿得到。
+// 前後補空行，讓圖片自成一段——和文字黏在同一段的話，圖片會跟文字擠在同一個 <p> 裡。
+function insertAtCaret(snippet) {
+  const el = textareaEl.value
+  const text = content.value
+  const start = el ? el.selectionStart : text.length
+  const end = el ? el.selectionEnd : text.length
+  const before = text.slice(0, start)
+  const after = text.slice(end)
+
+  const lead = newlinesBefore(before)
+  content.value = before + lead + snippet + newlinesAfter(after) + after
+  tab.value = 'write'
+
+  // 等 Vue 把新內容寫進 textarea 之後，把游標放在圖片語法的正後方（同 GitHub 的行為）
+  nextTick(() => {
+    if (!el) return
+    const pos = before.length + lead.length + snippet.length
+    el.focus()
+    el.setSelectionRange(pos, pos)
+  })
+}
+
+// 圖片前面需要補幾個換行，才能和前一段文字之間隔出一個空行
+function newlinesBefore(before) {
+  if (before === '' || before.endsWith('\n\n')) return ''
+  return before.endsWith('\n') ? '\n' : '\n\n'
+}
+
+// 同上，圖片後面
+function newlinesAfter(after) {
+  if (after === '' || after.startsWith('\n\n')) return ''
+  return after.startsWith('\n') ? '\n' : '\n\n'
 }
 
 /* ---------- 標題文字：依模式與狀態變化 ---------- */
@@ -200,11 +293,20 @@ watch(content, () => {
           >
             預覽
           </button>
+          <ImageUploadButton
+            :disabled="saving || mediaFull"
+            @uploaded="onImageUploaded"
+            @busy="imageBusy = $event"
+          />
+          <span v-if="activeMedia.length > 0" class="editor__media-count">
+            {{ activeMedia.length }} / {{ MAX_MEDIA }}
+          </span>
           <span class="editor__hint">支援 Markdown 語法</span>
         </div>
 
         <textarea
           v-show="tab === 'write'"
+          ref="textareaEl"
           v-model="content"
           class="editor__textarea"
           placeholder="開始寫吧。可以使用 # 標題、**粗體**、- 清單…"
@@ -296,9 +398,16 @@ watch(content, () => {
 
 .editor__tabs {
   display: flex;
+  flex-wrap: wrap; /* P5-3：多了圖片按鈕與狀態訊息，窄螢幕時允許換行 */
   align-items: center;
   gap: var(--space-2);
   margin-bottom: var(--space-2);
+}
+
+/* P5-3：已使用的媒體數，例如「3 / 10」 */
+.editor__media-count {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
 }
 
 .editor__tab {

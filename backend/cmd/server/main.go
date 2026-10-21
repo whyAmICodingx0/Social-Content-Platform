@@ -86,7 +86,10 @@ func main() {
 	userHandler := &handler.UserHandler{Svc: userSvc, Follows: followSvc}
 
 	postRepo := repository.NewPostRepository(pool)
-	postSvc := &service.PostService{Posts: postRepo}
+	postSvc := &service.PostService{
+		Posts: postRepo,
+		Media: repository.NewMediaRepository(pool), // P5-3：驗證 media_ids
+	}
 	postHandler := &handler.PostHandler{Svc: postSvc}
 
 	likeRepo := repository.NewLikeRepository(pool)
