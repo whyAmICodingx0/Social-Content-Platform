@@ -54,7 +54,7 @@ func (h *LikeHandler) fail(c *gin.Context, err error) {
 		api.Fail(c, http.StatusNotFound, api.CodeNotFound, "post not found")
 		return
 	}
-	log.Printf("<handler>.<method>: unexpected error: %v", err)
+	log.Printf("like handler: unexpected error: %v", err)
 	api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
 		"Service temporarily unavailable")
 }

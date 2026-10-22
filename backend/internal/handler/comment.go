@@ -122,7 +122,7 @@ func (h *CommentHandler) fail(c *gin.Context, err error) {
 		api.Fail(c, http.StatusForbidden, api.CodeForbidden,
 			"you do not have permission to modify this comment")
 	default:
-		log.Printf("<handler>.<method>: unexpected error: %v", err)
+		log.Printf("comment handler: unexpected error: %v", err)
 		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
 			"Service temporarily unavailable")
 	}

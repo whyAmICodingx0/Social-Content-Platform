@@ -94,7 +94,7 @@ func (h *FollowHandler) fail(c *gin.Context, err error) {
 	case errors.Is(err, repository.ErrNotFound):
 		api.Fail(c, http.StatusNotFound, api.CodeNotFound, "user not found")
 	default:
-		log.Printf("<handler>.<method>: unexpected error: %v", err)
+		log.Printf("follow handler: unexpected error: %v", err)
 		api.Fail(c, http.StatusServiceUnavailable, api.CodeServiceUnavailable,
 			"Service temporarily unavailable")
 	}
