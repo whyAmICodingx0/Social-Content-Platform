@@ -13,8 +13,9 @@ const (
 // SearchTerms 是查詢字串處理的結果。
 //
 // 兩個欄位刻意分開：
-//   Pattern —— 給 ILIKE 用，已 escape 並加上 %
-//   Query   —— 給 word_similarity 用，trim 後但**未 escape**
+//
+//	Pattern —— 給 ILIKE 用，已 escape 並加上 %
+//	Query   —— 給 word_similarity 用，trim 後但**未 escape**
 //
 // ⚠️ 兩者不可互換。若把 escape 後的字串餵給 word_similarity，
 // 使用者搜「50%」會變成對「50\%」算 trigram，排序失準。
