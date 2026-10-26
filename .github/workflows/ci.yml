@@ -1,0 +1,58 @@
+# CI:每次 push 到 main(以及開 pull request 時)自動檢查後端。
+#
+# 三個檢查,任何一個失敗,commit 旁邊就會出現紅色叉叉,GitHub 也會寄信通知:
+#   1. gofmt   —— 程式碼格式是否符合 Go 官方格式
+#   2. go vet  —— Go 官方的靜態檢查(抓常見錯誤,例如 Printf 參數對不上)
+#   3. go test —— 所有單元測試,加上 -race 檢查並行程式的資料競爭
+#
+# 不需要任何 secret,也不連資料庫或 Redis:現有的測試都把外部服務換成了假的實作。
+# README 最上面的 CI 徽章,顯示的就是這個 workflow 在 main 分支上最近一次的結果。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: # 允許在 Actions 頁面手動執行
+
+# 只需要讀取程式碼
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (gofmt / vet / test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          # 直接讀 go.mod 的 go 版本,本機與 CI 永遠一致,不用改兩個地方
+          go-version-file: backend/go.mod
+          # go.sum 不在 repo 根目錄,要明確指定,否則套件快取找不到檔案
+          cache-dependency-path: backend/go.sum
+
+      - name: gofmt
+        # gofmt -l 只列出「格式不對」的檔案、不修改;有任何輸出就讓這一步失敗
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-formatted. Run: gofmt -w <file>"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        # -race:資料競爭檢查(ws 套件的 Hub 測試需要)
+        # -count=1:不使用測試結果快取,每次都真的重跑
+        run: go test -race -count=1 ./...

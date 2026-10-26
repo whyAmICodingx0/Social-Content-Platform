@@ -1,4 +1,5 @@
 # Inkwell — Social Content Platform
+[![CI](https://github.com/whyAmICodingx0/Social-Content-Platform/actions/workflows/ci.yml/badge.svg)](https://github.com/whyAmICodingx0/Social-Content-Platform/actions/workflows/ci.yml)
 
 一個結合長文寫作與社交互動的內容平台：Markdown 發文、圖片與影片上傳、按讚留言、追蹤與動態牆、即時私訊、通知系統與全文搜尋。以 Go 與 Vue 3 從零實作。
 

@@ -24,11 +24,24 @@ type SessionStore interface {
 	GetUserID(ctx context.Context, sessionID string) (string, error)
 }
 
+// UserLookup:Auth 唯一需要的使用者查詢。
+//
+// 用介面而不是 *repository.UserRepository,是為了讓測試能換成假的實作、
+// 不需要真的資料庫(見 auth_test.go)。正式環境傳入的仍然是
+// *repository.UserRepository —— 它本來就有這個方法,所以 main.go 不用改。
+type UserLookup interface {
+	GetByID(ctx context.Context, id string) (*repository.User, error)
+}
+
+// 編譯期檢查:*repository.UserRepository 必須滿足 UserLookup。
+// 哪天 GetByID 的簽名改了,這裡會直接編譯失敗,而不是到 main.go 才發現。
+var _ UserLookup = (*repository.UserRepository)(nil)
+
 const ctxUserKey = "auth.user"
 
 type Auth struct {
 	Store SessionStore
-	Users *repository.UserRepository
+	Users UserLookup
 }
 
 var errNoCookie = errors.New("no session cookie")
