@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	minSearchLen = 2   // 決策 #97：維持 2 以支援中文兩字詞
+	minSearchLen = 2 // 決策 #97：維持 2 以支援中文兩字詞
 	maxSearchLen = 100
 )
 
